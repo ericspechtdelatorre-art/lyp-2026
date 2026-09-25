@@ -1,0 +1,2349 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IKEA-Lang (PLÅTTA) IDE - Entorno Oficial de Montaje</title>
+  
+  <!-- Favicon con Allen Key SVG -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230058a3'/><path d='M8 6h12v6h-6v14H8z' fill='%23ffdb00'/></svg>">
+
+  <!-- CodeMirror 5 CDN & Theme -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
+
+  <style>
+    /* ==========================================================================
+       1. VARIABLES Y DISEÑO NÓRDICO / IKEA
+       ========================================================================== */
+    :root {
+      --ikea-blue: #0058a3;
+      --ikea-blue-dark: #003e73;
+      --ikea-blue-light: #e5f1fa;
+      --ikea-yellow: #ffdb00;
+      --ikea-yellow-hover: #e5c500;
+      --ikea-yellow-soft: #fff9d6;
+      --nordic-bg: #f5f5f7;
+      --nordic-card: #ffffff;
+      --nordic-border: #e2e2e7;
+      --nordic-text: #111111;
+      --nordic-muted: #666666;
+      --nordic-wood: #e8d7be;
+      --nordic-cardboard: #d6be96;
+      --nordic-cardboard-dark: #b89c72;
+      --console-bg: #18191c;
+      --console-text: #e0e2e6;
+      --success: #1b873f;
+      --warning: #d97706;
+      --danger: #d93829;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --font-mono: "Fira Code", "Cascadia Code", "JetBrains Mono", Consolas, Menlo, monospace;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+      --shadow-md: 0 4px 10px rgba(0,0,0,0.07);
+      --shadow-lg: 0 10px 25px rgba(0,0,0,0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background-color: var(--nordic-bg);
+      color: var(--nordic-text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ==========================================================================
+       2. HEADER ESTILO MANUAL DE MONTAJE IKEA
+       ========================================================================== */
+    header {
+      background: var(--ikea-blue);
+      color: #ffffff;
+      padding: 0.6rem 1.2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 4px solid var(--ikea-yellow);
+      box-shadow: var(--shadow-md);
+      z-index: 100;
+      flex-shrink: 0;
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .ikea-logo-badge {
+      background: var(--ikea-yellow);
+      color: var(--ikea-blue);
+      font-weight: 900;
+      font-size: 1.35rem;
+      padding: 0.25rem 0.85rem;
+      border-radius: 999px;
+      letter-spacing: 1px;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+      border: 2px solid #ffffff;
+      text-transform: uppercase;
+    }
+
+    .brand-title {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .brand-title h1 {
+      font-size: 1.15rem;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .brand-title .badge-pill {
+      background: rgba(255, 255, 255, 0.2);
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .brand-title span.slogan {
+      font-size: 0.75rem;
+      color: #dbeafe;
+      font-style: italic;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .help-btn {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      color: #ffffff;
+      padding: 0.4rem 0.8rem;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      transition: all 0.15s ease;
+    }
+
+    .help-btn:hover {
+      background: rgba(255, 255, 255, 0.15);
+      border-color: #ffffff;
+    }
+
+    /* ==========================================================================
+       3. BARRA DE HERRAMIENTAS PRINCIPAL (TOOLBAR)
+       ========================================================================== */
+    .toolbar {
+      background: #ffffff;
+      border-bottom: 1px solid var(--nordic-border);
+      padding: 0.5rem 1.2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      flex-shrink: 0;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .toolbar-left, .toolbar-center, .toolbar-right {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .btn {
+      font-family: inherit;
+      font-size: 0.82rem;
+      font-weight: 700;
+      padding: 0.45rem 0.9rem;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    .btn-run {
+      background: var(--ikea-yellow);
+      color: var(--ikea-blue-dark);
+      border-color: var(--ikea-yellow-hover);
+      box-shadow: 0 2px 4px rgba(255, 219, 0, 0.35);
+    }
+    .btn-run:hover:not(:disabled) {
+      background: var(--ikea-yellow-hover);
+      transform: translateY(-1px);
+    }
+
+    .btn-step {
+      background: var(--ikea-blue);
+      color: #ffffff;
+    }
+    .btn-step:hover:not(:disabled) {
+      background: var(--ikea-blue-dark);
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: #f1f2f4;
+      color: #333333;
+      border-color: #d8dadf;
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background: #e4e6ea;
+      color: #111111;
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    .separator {
+      width: 1px;
+      height: 24px;
+      background: var(--nordic-border);
+      margin: 0 0.25rem;
+    }
+
+    .select-label {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--nordic-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .ikea-select {
+      font-family: inherit;
+      font-size: 0.82rem;
+      font-weight: 600;
+      padding: 0.4rem 0.8rem;
+      border: 1px solid var(--nordic-border);
+      border-radius: 6px;
+      background: #ffffff;
+      color: var(--nordic-text);
+      cursor: pointer;
+      outline: none;
+      transition: border 0.15s ease;
+    }
+    .ikea-select:focus {
+      border-color: var(--ikea-blue);
+      box-shadow: 0 0 0 2px rgba(0, 88, 163, 0.15);
+    }
+
+    /* Switch Toggles */
+    .toggle-container {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      cursor: pointer;
+      user-select: none;
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 0.35rem 0.6rem;
+      border-radius: 6px;
+      background: #f8f9fa;
+      border: 1px solid var(--nordic-border);
+      transition: all 0.2s;
+    }
+    .toggle-container:hover {
+      background: #f0f2f5;
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 34px;
+      height: 18px;
+      background: #cbd5e1;
+      border-radius: 999px;
+      transition: background 0.2s;
+    }
+    .toggle-switch::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 14px;
+      height: 14px;
+      background: #ffffff;
+      border-radius: 50%;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+      transition: transform 0.2s;
+    }
+    input[type="checkbox"]:checked + .toggle-switch {
+      background: var(--ikea-blue);
+    }
+    input[type="checkbox"]:checked + .toggle-switch.yellow-switch {
+      background: #eab308;
+    }
+    input[type="checkbox"]:checked + .toggle-switch::after {
+      transform: translateX(16px);
+    }
+    .toggle-container input {
+      display: none;
+    }
+
+    /* ==========================================================================
+       4. BARRA DE SNIPPETS RÁPIDOS (PICTOGRAMAS DE MONTAJE)
+       ========================================================================== */
+    .snippets-bar {
+      background: #fafafa;
+      border-bottom: 1px solid var(--nordic-border);
+      padding: 0.35rem 1.2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      overflow-x: auto;
+      flex-shrink: 0;
+    }
+    .snippets-bar::-webkit-scrollbar {
+      height: 4px;
+    }
+    .snippets-bar::-webkit-scrollbar-thumb {
+      background: #d4d4d8;
+      border-radius: 2px;
+    }
+    .snippets-label {
+      font-size: 0.72rem;
+      font-weight: 800;
+      color: var(--nordic-muted);
+      text-transform: uppercase;
+      white-space: nowrap;
+      margin-right: 0.3rem;
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+    .chip-btn {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 700;
+      background: #ffffff;
+      border: 1px solid #d4d4d8;
+      color: #27272a;
+      padding: 0.25rem 0.55rem;
+      border-radius: 4px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      white-space: nowrap;
+      transition: all 0.12s ease;
+    }
+    .chip-btn:hover {
+      background: var(--ikea-blue-light);
+      border-color: var(--ikea-blue);
+      color: var(--ikea-blue-dark);
+      transform: translateY(-1px);
+    }
+    .chip-btn .chip-desc {
+      font-family: var(--font-sans);
+      font-size: 0.68rem;
+      color: #71717a;
+      font-weight: 500;
+    }
+
+    /* ==========================================================================
+       5. LAYOUT DE 3 PANELES (SPLIT VIEW)
+       ========================================================================== */
+    .main-workspace {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      grid-template-rows: 1fr 240px;
+      grid-template-areas:
+        "editor inspector"
+        "console inspector";
+      flex: 1;
+      overflow: hidden;
+      background: #e8e8ed;
+      gap: 5px;
+      padding: 5px;
+    }
+
+    @media (max-width: 980px) {
+      .main-workspace {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr 200px 240px;
+        grid-template-areas:
+          "editor"
+          "inspector"
+          "console";
+      }
+    }
+
+    .panel {
+      background: var(--nordic-card);
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--nordic-border);
+    }
+
+    .panel-header {
+      background: #f7f7f9;
+      border-bottom: 1px solid var(--nordic-border);
+      padding: 0.45rem 0.85rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      user-select: none;
+    }
+
+    .panel-title {
+      font-size: 0.8rem;
+      font-weight: 800;
+      color: #333333;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+
+    .panel-title svg {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
+    }
+
+    .panel-header-badges {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .indicator-badge {
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      background: #e2e8f0;
+      color: #475569;
+    }
+
+    .indicator-badge.direction {
+      background: #dbeafe;
+      color: var(--ikea-blue-dark);
+      border: 1px solid #bfdbfe;
+    }
+
+    .indicator-badge.status-running {
+      background: #fef08a;
+      color: #854d0e;
+      animation: pulse 1.5s infinite;
+    }
+
+    .indicator-badge.status-ok {
+      background: #bbf7d0;
+      color: #166534;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    /* ==========================================================================
+       6. PANEL 1: EDITOR DE CÓDIGO & GRAVEDAD SINTÁCTICA
+       ========================================================================== */
+    .panel-editor {
+      grid-area: editor;
+      position: relative;
+    }
+
+    .flow-indicator-bar {
+      background: #f0f7ff;
+      border-bottom: 1px dashed #93c5fd;
+      padding: 0.25rem 0.85rem;
+      font-size: 0.72rem;
+      color: var(--ikea-blue-dark);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 600;
+    }
+
+    .flow-direction-arrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      color: var(--ikea-blue);
+      font-weight: 800;
+    }
+
+    .editor-wrapper {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+    }
+
+    /* CodeMirror Estilos Personalizados */
+    .CodeMirror {
+      height: 100% !important;
+      width: 100% !important;
+      font-family: var(--font-mono) !important;
+      font-size: 14.5px !important;
+      line-height: 1.6 !important;
+      background: #fafafc !important;
+      color: #18181b !important;
+    }
+
+    .CodeMirror-gutters {
+      background: #f0f0f4 !important;
+      border-right: 1px solid #e2e2e8 !important;
+      padding-right: 4px !important;
+    }
+
+    .CodeMirror-linenumber {
+      color: #94a3b8 !important;
+      font-weight: 600 !important;
+      font-size: 12px !important;
+      padding: 0 6px !important;
+    }
+
+    /* Línea invertida / Bottom-Up styling */
+    .bottom-up-gutter .CodeMirror-linenumber {
+      color: var(--ikea-blue) !important;
+    }
+
+    /* Resaltado de línea en depuración / ejecución */
+    .executing-line-bg {
+      background-color: rgba(255, 219, 0, 0.35) !important;
+      border-left: 4px solid var(--ikea-blue) !important;
+    }
+
+    .executing-line-lost {
+      background-color: rgba(239, 68, 68, 0.25) !important;
+      text-decoration: line-through !important;
+      color: #991b1b !important;
+    }
+
+    /* Tokens Syntax Highlighting IKEA-Lang */
+    .cm-ikea-allen { color: #0058a3 !important; font-weight: 800 !important; } /* [L] */
+    .cm-ikea-slut { color: #475569 !important; font-weight: 800 !important; }  /* [x] */
+    .cm-ikea-peg { color: #b45309 !important; font-weight: 800 !important; }   /* ---# */
+    .cm-ikea-screw { color: #059669 !important; font-weight: 800 !important; } /* ###> */
+    .cm-ikea-screwdriver { color: #dc2626 !important; font-weight: 800 !important; } /* <### */
+    .cm-ikea-bolt { color: #d97706 !important; font-weight: 800 !important; }  /* *##* */
+    .cm-ikea-washer { color: #4f46e5 !important; font-weight: 800 !important; }/* (o) */
+    .cm-ikea-broken { color: #991b1b !important; font-weight: 800 !important; text-decoration: line-through; } /* ---x */
+    .cm-ikea-hammer { color: #7c2d12 !important; font-weight: 800 !important; } /* [T=] */
+    .cm-ikea-anchor { color: #0f766e !important; font-weight: 800 !important; } /* |==| */
+    .cm-ikea-felt { color: #0284c7 !important; font-weight: 800 !important; background: #e0f2fe; border-radius: 3px; padding: 0 2px; } /* (_) */
+    .cm-ikea-branch { color: #9333ea !important; font-weight: 800 !important; } /* [?] */
+    .cm-ikea-loop { color: #c026d3 !important; font-weight: 800 !important; }   /* ~~~~ */
+    .cm-ikea-print { color: #b91c1c !important; font-weight: 800 !important; background: #fee2e2; border-radius: 3px; padding: 0 2px; } /* [!] */
+    .cm-ikea-number { color: #d97706 !important; font-weight: 700 !important; }
+    .cm-ikea-nordic { color: #004b8d !important; font-weight: 700 !important; }
+    .cm-ikea-comment { color: #94a3b8 !important; font-style: italic !important; }
+
+    /* ==========================================================================
+       7. PANEL 2: EL FLATPACK & ANCLAJES DE PARED (MEMORIA / STACK)
+       ========================================================================== */
+    .panel-inspector {
+      grid-area: inspector;
+      background: #fafafc;
+    }
+
+    .inspector-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .section-card {
+      background: #ffffff;
+      border: 1px solid var(--nordic-border);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .section-card-header {
+      background: #f1f3f7;
+      padding: 0.45rem 0.75rem;
+      font-size: 0.75rem;
+      font-weight: 800;
+      color: #334155;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--nordic-border);
+    }
+
+    /* Pila PAKKET Estilo Caja de Cartón Flatpack */
+    .flatpack-box {
+      min-height: 180px;
+      padding: 0.75rem;
+      background: #fffbf0;
+      background-image: repeating-linear-gradient(45deg, #faf5e6 0, #faf5e6 10px, #fffdf8 10px, #fffdf8 20px);
+      border: 2px dashed var(--nordic-cardboard-dark);
+      border-radius: 6px;
+      margin: 0.65rem;
+      display: flex;
+      flex-direction: column-reverse; /* Bottom-up visual stack */
+      gap: 0.5rem;
+      position: relative;
+    }
+
+    .flatpack-empty-state {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: #94a3b8;
+      padding: 1rem;
+      pointer-events: none;
+    }
+
+    .flatpack-empty-state svg {
+      width: 48px;
+      height: 48px;
+      margin-bottom: 0.5rem;
+      opacity: 0.6;
+    }
+
+    .flatpack-empty-state p {
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+
+    .flatpack-item {
+      background: var(--nordic-cardboard);
+      border: 2px solid var(--nordic-cardboard-dark);
+      border-radius: 6px;
+      padding: 0.45rem 0.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 3px 6px rgba(0,0,0,0.08);
+      animation: dropIn 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      position: relative;
+      font-family: var(--font-mono);
+      transition: all 0.2s ease;
+    }
+
+    @keyframes dropIn {
+      0% { transform: translateY(-20px) scale(0.9); opacity: 0; }
+      100% { transform: translateY(0) scale(1); opacity: 1; }
+    }
+
+    .flatpack-item.top-item {
+      background: var(--ikea-yellow);
+      border-color: #d97706;
+      box-shadow: 0 4px 10px rgba(255, 219, 0, 0.4);
+    }
+
+    .flatpack-item-val {
+      font-size: 1.1rem;
+      font-weight: 900;
+      color: #1c1917;
+    }
+
+    .flatpack-item-badge {
+      font-family: var(--font-sans);
+      font-size: 0.68rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      background: rgba(0,0,0,0.08);
+      color: #292524;
+    }
+
+    .flatpack-item.top-item .flatpack-item-badge {
+      background: var(--ikea-blue);
+      color: #ffffff;
+    }
+
+    /* Anclajes de Pared (|==|) */
+    .wall-anchors-list {
+      padding: 0.65rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .wall-anchor-empty {
+      font-size: 0.78rem;
+      color: #94a3b8;
+      text-align: center;
+      padding: 0.85rem;
+      font-style: italic;
+    }
+
+    .wall-anchor-card {
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-left: 4px solid #0f766e;
+      border-radius: 4px;
+      padding: 0.4rem 0.65rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+    }
+
+    .wall-anchor-var {
+      font-weight: 700;
+      color: #0f766e;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .wall-anchor-val {
+      font-weight: 800;
+      background: #e2e8f0;
+      padding: 0.1rem 0.45rem;
+      border-radius: 3px;
+      color: #1e293b;
+    }
+
+    /* Resumen de Ejecución y Métricas */
+    .execution-stats {
+      padding: 0.65rem 0.85rem;
+      font-size: 0.75rem;
+      color: #475569;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.4rem;
+      background: #f8fafc;
+    }
+
+    .stat-label {
+      color: #64748b;
+      font-weight: 600;
+    }
+
+    .stat-value {
+      font-weight: 800;
+      color: #0f172a;
+      text-align: right;
+      font-family: var(--font-mono);
+    }
+
+    /* ==========================================================================
+       8. PANEL 3: CONSOLA DE ENSAMBLAJE (TERMINAL & LOGS)
+       ========================================================================== */
+    .panel-console {
+      grid-area: console;
+      background: var(--console-bg);
+      color: var(--console-text);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .panel-console .panel-header {
+      background: #111215;
+      border-bottom: 1px solid #282a30;
+      color: #e0e2e6;
+    }
+
+    .panel-console .panel-title {
+      color: #e0e2e6;
+    }
+
+    .console-tabs {
+      display: flex;
+      align-items: center;
+      gap: 0.2rem;
+    }
+
+    .console-tab {
+      background: transparent;
+      border: none;
+      color: #8f95a3;
+      padding: 0.3rem 0.6rem;
+      font-size: 0.72rem;
+      font-weight: 700;
+      border-radius: 4px;
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: all 0.15s;
+    }
+
+    .console-tab:hover {
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .console-tab.active {
+      color: var(--ikea-yellow);
+      background: rgba(255, 219, 0, 0.12);
+    }
+
+    .console-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .console-btn {
+      background: transparent;
+      border: 1px solid #3b3e47;
+      color: #cbd5e1;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .console-btn:hover {
+      background: #282a30;
+      color: #ffffff;
+    }
+
+    .console-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.75rem 1rem;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      line-height: 1.6;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .console-line {
+      display: flex;
+      align-items: baseline;
+      gap: 0.6rem;
+      word-break: break-all;
+    }
+
+    .console-line-time {
+      color: #64748b;
+      font-size: 0.7rem;
+      flex-shrink: 0;
+    }
+
+    .console-line.output {
+      color: #38bdf8;
+      font-size: 0.95rem;
+      font-weight: 700;
+      background: rgba(56, 189, 248, 0.08);
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      border-left: 3px solid #38bdf8;
+    }
+
+    .console-line.warning {
+      color: #facc15;
+      background: rgba(250, 204, 21, 0.1);
+      padding: 0.4rem 0.6rem;
+      border-radius: 4px;
+      border-left: 3px solid #facc15;
+      font-weight: 600;
+    }
+
+    .console-line.felt-saved {
+      color: #34d399;
+      background: rgba(52, 211, 153, 0.1);
+      padding: 0.4rem 0.6rem;
+      border-radius: 4px;
+      border-left: 3px solid #34d399;
+      font-weight: 600;
+    }
+
+    .console-line.error {
+      color: #f87171;
+      background: rgba(248, 113, 113, 0.12);
+      padding: 0.5rem 0.75rem;
+      border-radius: 4px;
+      border-left: 4px solid #ef4444;
+      font-weight: 600;
+    }
+
+    .console-line.system {
+      color: #94a3b8;
+    }
+
+    .console-line.step {
+      color: #e2e8f0;
+      border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
+      padding-bottom: 0.2rem;
+    }
+
+    /* Modal de Ayuda y Manual */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(3px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 1.5rem;
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .modal-box {
+      background: #ffffff;
+      border-radius: 10px;
+      max-width: 780px;
+      width: 100%;
+      max-height: 85vh;
+      overflow-y: auto;
+      box-shadow: var(--shadow-lg);
+      border: 3px solid var(--ikea-blue);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .modal-header {
+      background: var(--ikea-blue);
+      color: #ffffff;
+      padding: 1rem 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .modal-header h2 {
+      font-size: 1.2rem;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .modal-close {
+      background: transparent;
+      border: none;
+      color: #ffffff;
+      font-size: 1.5rem;
+      cursor: pointer;
+      line-height: 1;
+    }
+
+    .modal-content {
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.2rem;
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    .ikea-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+      margin-top: 0.5rem;
+    }
+
+    .ikea-table th, .ikea-table td {
+      border: 1px solid var(--nordic-border);
+      padding: 0.45rem 0.65rem;
+      text-align: left;
+    }
+
+    .ikea-table th {
+      background: #f1f5f9;
+      font-weight: 800;
+      color: #1e293b;
+    }
+
+    .ikea-table code {
+      font-family: var(--font-mono);
+      font-weight: 800;
+      color: var(--ikea-blue);
+      background: #f1f5f9;
+      padding: 0.15rem 0.35rem;
+      border-radius: 3px;
+    }
+
+    .ikea-notice-card {
+      background: var(--ikea-yellow-soft);
+      border-left: 4px solid var(--ikea-yellow-hover);
+      padding: 0.85rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ========================================================================
+       HEADER: IDENTIDAD IKEA & MONTERINGSANVISNING
+       ======================================================================== -->
+  <header>
+    <div class="brand-group">
+      <div class="ikea-logo-badge">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm6 4v10h2V9h4V7h-6z"/>
+        </svg>
+        PLÅTTA
+      </div>
+      <div class="brand-title">
+        <h1>IKEA-Lang IDE <span class="badge-pill">v1.0 Oficial</span></h1>
+        <span class="slogan">Monteringsanvisning: Flujo Bottom-Up y Mecánica del Tornillo Perdido</span>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <button class="help-btn" id="btn-manual" title="Abrir Manual de Montaje y Referencia de Tokens">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+        Manual de Montaje
+      </button>
+    </div>
+  </header>
+
+  <!-- ========================================================================
+       TOOLBAR: CONTROLES DE EJECUCIÓN, SWITCHES Y EJEMPLOS
+       ======================================================================== -->
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <!-- Botón Ensamblar y Ejecutar -->
+      <button class="btn btn-run" id="btn-run" title="Ejecutar el programa completo desde el suelo hacia arriba">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        Ensamblar y Ejecutar
+      </button>
+
+      <!-- Botón Paso a Paso -->
+      <button class="btn btn-step" id="btn-step" title="Avanzar 1 instrucción (Bottom-Up)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="5 4 15 12 5 20 5 4"></polygon>
+          <line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="3"></line>
+        </svg>
+        Paso a Paso
+      </button>
+
+      <!-- Botón Reiniciar / Desmontar -->
+      <button class="btn btn-secondary" id="btn-reset" title="Restablecer máquina virtual y pila">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+          <path d="M3 3v5h5"></path>
+        </svg>
+        Desmontar
+      </button>
+
+      <div class="separator"></div>
+
+      <!-- Selector de Velocidad -->
+      <span class="select-label">Velocidad:</span>
+      <select class="ikea-select" id="select-speed" title="Velocidad de ejecución continua">
+        <option value="400">Media (400ms)</option>
+        <option value="800">Lenta (800ms)</option>
+        <option value="150">Rápida (150ms)</option>
+        <option value="0">Turbo (0ms)</option>
+      </select>
+    </div>
+
+    <div class="toolbar-center">
+      <!-- Toggle Fallo de Fábrica (Tornillo Perdido) -->
+      <label class="toggle-container" title="Si se activa, el runtime pierde aleatoriamente 1 instrucción al azar salvo que esté protegida por fieltros (_)">
+        <input type="checkbox" id="toggle-defect" checked>
+        <span class="toggle-switch yellow-switch"></span>
+        <span>Fallo de Fábrica (Tornillo Perdido)</span>
+      </label>
+
+      <!-- Toggle Numeración Bottom-Up -->
+      <label class="toggle-container" title="Invierte visualmente los números de línea para reflejar que la última línea física es el paso 1">
+        <input type="checkbox" id="toggle-reverse-lines" checked>
+        <span class="toggle-switch"></span>
+        <span>Numeración Bottom-Up (↑)</span>
+      </label>
+    </div>
+
+    <div class="toolbar-right">
+      <span class="select-label">Mueble / Ejemplo:</span>
+      <select class="ikea-select" id="select-example">
+        <option value="exA">Ejemplo A: Hola Mundo 42 (Protegido con fieltros)</option>
+        <option value="exB">Ejemplo B: Pata de Mesa (Bucle regresivo 3 a 1)</option>
+        <option value="exBilly">Ejemplo C: Estantería BILLY (Suma con ###>)</option>
+        <option value="exLost">Ejemplo D: Fábrica Temeraria (Sin fieltros - Riesgo)</option>
+        <option value="exFel">Ejemplo E: Error Fel 102 (Sin vocales nórdicas)</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       SNIPPETS BAR: ACCESO RÁPIDO A TOKENS DE IKEA-LANG
+       ======================================================================== -->
+  <div class="snippets-bar">
+    <span class="snippets-label">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+      </svg>
+      Caja de Herramientas:
+    </span>
+    <button class="chip-btn" data-insert="[L] BÖRK_BORD&#10;"><code>[L]</code> <span class="chip-desc">Llave Allen</span></button>
+    <button class="chip-btn" data-insert="---# 42&#10;"><code>---# &lt;n&gt;</code> <span class="chip-desc">Clavija madera</span></button>
+    <button class="chip-btn" data-insert="###>&#10;"><code>###></code> <span class="chip-desc">Tornillo (ADD)</span></button>
+    <button class="chip-btn" data-insert="<### 1&#10;"><code>&lt;### &lt;n&gt;</code> <span class="chip-desc">Destornillador</span></button>
+    <button class="chip-btn" data-insert="*##*&#10;"><code>*##*</code> <span class="chip-desc">Perno (MUL)</span></button>
+    <button class="chip-btn" data-insert="(o)&#10;"><code>(o)</code> <span class="chip-desc">Arandela (DUP)</span></button>
+    <button class="chip-btn" data-insert="---x&#10;"><code>---x</code> <span class="chip-desc">Clavija rota</span></button>
+    <button class="chip-btn" data-insert="[T=]&#10;"><code>[T=]</code> <span class="chip-desc">Martillo goma</span></button>
+    <button class="chip-btn" data-insert="|==| STÅBIL_FOT 0&#10;"><code>|==|</code> <span class="chip-desc">Taco pared</span></button>
+    <button class="chip-btn" data-insert="(_)&#10;"><code>(_)</code> <span class="chip-desc">Fieltro FIXA</span></button>
+    <button class="chip-btn" data-insert="[?] SLUT_STOL&#10;"><code>[?]</code> <span class="chip-desc">Confundido</span></button>
+    <button class="chip-btn" data-insert="~~~~&#10;"><code>~~~~</code> <span class="chip-desc">Cojera (Loop)</span></button>
+    <button class="chip-btn" data-insert="[!]&#10;"><code>[!]</code> <span class="chip-desc">Teléfono (Print)</span></button>
+    <button class="chip-btn" data-insert="[x]&#10;"><code>[x]</code> <span class="chip-desc">Slut (Fin)</span></button>
+  </div>
+
+  <!-- ========================================================================
+       MAIN WORKSPACE (3 PANELES)
+       ======================================================================== -->
+  <main class="main-workspace">
+
+    <!-- PANEL 1: EDITOR DE CÓDIGO -->
+    <section class="panel panel-editor">
+      <div class="panel-header">
+        <div class="panel-title">
+          <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          Editor de Montaje (mueble.ikea)
+        </div>
+        <div class="panel-header-badges">
+          <span class="indicator-badge direction" id="badge-direction">▲ Flujo: Bottom-Up (Línea N ➔ Línea 1)</span>
+          <span class="indicator-badge" id="badge-status">Inactivo</span>
+        </div>
+      </div>
+
+      <!-- Barra indicadora de gravedad -->
+      <div class="flow-indicator-bar">
+        <span>INSTRUCCIONES DE MONTAJE (La ejecución parte del suelo y asciende al techo)</span>
+        <span class="flow-direction-arrow">▲ SENTIDO DE CONSTRUCCIÓN ▲</span>
+      </div>
+
+      <!-- Contenedor del Editor CodeMirror -->
+      <div class="editor-wrapper">
+        <textarea id="code-editor" style="display: none;"></textarea>
+      </div>
+    </section>
+
+    <!-- PANEL 2: EL FLATPACK & ANCLAJES (MEMORIA Y PILA) -->
+    <aside class="panel panel-inspector">
+      <div class="panel-header">
+        <div class="panel-title">
+          <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></aside></svg>
+          El Flatpack (Memoria & Pila)
+        </div>
+        <div class="panel-header-badges">
+          <span class="indicator-badge" id="stack-count">0 piezas</span>
+        </div>
+      </div>
+
+      <div class="inspector-body">
+        
+        <!-- Pila PAKKET (Caja de Cartón) -->
+        <div class="section-card">
+          <div class="section-card-header">
+            <span>Pila de Piezas (PAKKET)</span>
+            <span style="font-size: 0.68rem; color: #64748b;">(Última pieza = TOPE)</span>
+          </div>
+          
+          <div class="flatpack-box" id="flatpack-container">
+            <div class="flatpack-empty-state" id="flatpack-empty">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+              </svg>
+              <p>Inget i paketet</p>
+              <span style="font-size: 0.72rem; color: #94a3b8;">La caja está vacía</span>
+            </div>
+            <!-- Los elementos de la pila se inyectan dinámicamente aquí -->
+          </div>
+        </div>
+
+        <!-- Anclajes de Pared (|==|) -->
+        <div class="section-card">
+          <div class="section-card-header">
+            <span>Tacos de Pared (|==| Inmutables)</span>
+            <span style="font-size: 0.68rem; color: #64748b;">Anclaje Seguro</span>
+          </div>
+          <div class="wall-anchors-list" id="wall-anchors-list">
+            <div class="wall-anchor-empty" id="wall-anchor-empty">
+              No hay anclajes instalados.
+            </div>
+          </div>
+        </div>
+
+        <!-- Estadísticas de Ensamblaje -->
+        <div class="section-card">
+          <div class="section-card-header">
+            <span>Diagnóstico del Montaje</span>
+          </div>
+          <div class="execution-stats">
+            <span class="stat-label">Puntero (PC):</span>
+            <span class="stat-value" id="stat-pc">-</span>
+            
+            <span class="stat-label">Paso actual:</span>
+            <span class="stat-value" id="stat-step">0</span>
+            
+            <span class="stat-label">Fieltros activos:</span>
+            <span class="stat-value" id="stat-felts">0</span>
+
+            <span class="stat-label">Tornillos perdidos:</span>
+            <span class="stat-value" id="stat-lost">0</span>
+          </div>
+        </div>
+
+      </div>
+    </aside>
+
+    <!-- PANEL 3: CONSOLA DE ENSAMBLAJE (LOGS & STDOUT) -->
+    <section class="panel panel-console">
+      <div class="panel-header">
+        <div class="panel-title">
+          <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+          Consola de Ensamblaje
+        </div>
+
+        <div class="console-tabs">
+          <button class="console-tab active" data-filter="all">Todo</button>
+          <button class="console-tab" data-filter="output">UDGÅNG (Salida)</button>
+          <button class="console-tab" data-filter="warnings">Avisos</button>
+        </div>
+
+        <div class="console-actions">
+          <button class="console-btn" id="btn-clear-console" title="Limpiar la consola">
+            Rensa konsol
+          </button>
+        </div>
+      </div>
+
+      <div class="console-body" id="console-output">
+        <div class="console-line system">
+          <span class="console-line-time">00:00:00</span>
+          <span>[SYSTEM] IKEA-Lang Runtime v1.0 listo. Abre una caja y presiona 'Ensamblar y Ejecutar'.</span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ========================================================================
+       MODAL DE AYUDA: MANUAL DE MONTAJE Y REFERENCIA
+       ======================================================================== -->
+  <div class="modal-backdrop" id="manual-modal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm6 4v10h2V9h4V7h-6z"/>
+          </svg>
+          Manual Oficial de Ensamblaje PLÅTTA (IKEA-Lang)
+        </h2>
+        <button class="modal-close" id="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-content">
+        <div class="ikea-notice-card">
+          <strong>VARNING:</strong> Este lenguaje se ejecuta estrictamente de <strong>ABAJO HACIA ARRIBA</strong>.
+          La última línea física del archivo es el punto de inicio de la construcción. Intentar compilar de arriba a abajo producirá un colapso estructural.
+        </div>
+
+        <h3 style="color: var(--ikea-blue); font-weight: 800;">Catálogo de Componentes (Tokens)</h3>
+        
+        <table class="ikea-table">
+          <thead>
+            <tr>
+              <th>Token</th>
+              <th>Nombre Sueco</th>
+              <th>Descripción</th>
+              <th>Comportamiento</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>[L] &lt;NOMBRE&gt;</code></td>
+              <td>Insexnyckel</td>
+              <td>Llave Allen</td>
+              <td>Apertura de bloque. ¡Debe contener vocales nórdicas (å, ä, ö, ø, æ)!</td>
+            </tr>
+            <tr>
+              <td><code>---# &lt;n&gt;</code></td>
+              <td>Träplugg</td>
+              <td>Clavija de madera</td>
+              <td>Apila (PUSH) el literal entero <code>&lt;n&gt;</code> en la pila PAKKET.</td>
+            </tr>
+            <tr>
+              <td><code>###&gt;</code></td>
+              <td>Skruv</td>
+              <td>Tornillo Allen</td>
+              <td>Suma (ADD) los dos valores superiores de la pila.</td>
+            </tr>
+            <tr>
+              <td><code>&lt;### &lt;n&gt;</code></td>
+              <td>Skruvmejsel</td>
+              <td>Destornillador</td>
+              <td>Resta directa: reduce <code>&lt;n&gt;</code> al tope de la pila.</td>
+            </tr>
+            <tr>
+              <td><code>*##*</code></td>
+              <td>Excenter</td>
+              <td>Perno de unión rápida</td>
+              <td>Multiplica (MUL) los dos valores superiores de la pila.</td>
+            </tr>
+            <tr>
+              <td><code>(o)</code></td>
+              <td>Bricka</td>
+              <td>Arandela</td>
+              <td>Duplica (DUP) el valor del tope de la pila.</td>
+            </tr>
+            <tr>
+              <td><code>---x</code></td>
+              <td>Kasserad</td>
+              <td>Clavija partida</td>
+              <td>Descarta (POP / DROP) el valor del tope de la pila.</td>
+            </tr>
+            <tr>
+              <td><code>[T=]</code></td>
+              <td>Gummiklubba</td>
+              <td>Martillo de goma</td>
+              <td>Coerción forzada a entero limpio canónico.</td>
+            </tr>
+            <tr>
+              <td><code>|==| &lt;ID&gt; &lt;v&gt;</code></td>
+              <td>Väggplugg</td>
+              <td>Taco de pared</td>
+              <td>Anclaje seguro: asigna a memoria global inmutable y sube el valor a la pila.</td>
+            </tr>
+            <tr>
+              <td><code>(_)</code></td>
+              <td>FIXA</td>
+              <td>Taco de fieltro</td>
+              <td>Absorbedor de defectos. Si el montador pierde una pieza, sacrifica el fieltro.</td>
+            </tr>
+            <tr>
+              <td><code>[?] &lt;LABEL&gt;</code></td>
+              <td>Förvirrad</td>
+              <td>Muñeco confundido</td>
+              <td>Salto condicional: salta a <code>&lt;LABEL&gt;</code> si el tope de la pila es &le; 0.</td>
+            </tr>
+            <tr>
+              <td><code>~~~~</code></td>
+              <td>Vattenpass</td>
+              <td>Nivel oscilante</td>
+              <td>Salto incondicional de regreso a la base del bloque actual (Loop).</td>
+            </tr>
+            <tr>
+              <td><code>[!]</code></td>
+              <td>Kundservice</td>
+              <td>Hombre llamando</td>
+              <td>Imprime el tope de la pila en STDOUT (UDGÅNG).</td>
+            </tr>
+            <tr>
+              <td><code>[x]</code></td>
+              <td>Slut</td>
+              <td>Mueble empaquetado</td>
+              <td>Cierre de subrutina o terminación limpia.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 style="color: var(--ikea-blue); font-weight: 800; margin-top: 0.5rem;">Pureza Fonética Nórdica</h3>
+        <p>Todo bloque <code>[L] &lt;NOMBRE&gt;</code> requiere obligatoriamente al menos un carácter nórdico: <code>å, ä, ö, ø, æ, Å, Ä, Ö, Ø, Æ</code>. De lo contrario, el sistema aborta con <code>Fel 102: Saknas svensk själ</code>.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       JAVASCRIPT: MÁQUINA VIRTUAL, EDITOR Y CONTROLADOR UI
+       ======================================================================== -->
+  <script>
+    /**
+     * IKEA-Lang (PLÅTTA) IDE & Virtual Machine
+     * Älmhult Computing Laboratories
+     */
+
+    // Vocales nórdicas obligatorias
+    const NORDIC_CHARS = new Set(["å", "ä", "ö", "ø", "æ", "Å", "Ä", "Ö", "Ø", "Æ"]);
+
+    // ========================================================================
+    // 1. EJEMPLOS PRECARGADOS
+    // ========================================================================
+    const EXAMPLES = {
+      exA: `// ===================================================
+// Ejemplo A: Multiplicación Segura con Fieltros FIXA
+// Calcula 6 * 7 = 42 y lo imprime.
+// Recuerda: Se ejecuta de ABAJO HACIA ARRIBA.
+// ===================================================
+[!]
+(_)
+*##*
+---# 7
+(_)
+---# 6
+[L] FÖRHÖJA_VAGN`,
+
+      exB: `// ===================================================
+// Ejemplo B: Bucle de Cuenta Regresiva (Patas de Mesa)
+// Imprime del 3 al 1 y concluye saltando a SLUT_STÖL.
+// ===================================================
+[x]
+[L] SLUT_STÖL
+[!]
+~~~~
+<### 1
+[?] SLUT_STÖL
+(o)
+[!]
+(_)
+---# 3
+|==| STÅBIL_FOT 0
+[L] INGÖLF_STOL`,
+
+      exBilly: `// ===================================================
+// Ejemplo C: Montaje de Estantería BILLY
+// Ancla la balda base, suma compartimentos e imprime total.
+// ===================================================
+[!]
+###>
+---# 4
+###>
+---# 16
+|==| BÄRANDE_VÄGG 20
+[L] BÏLLY_BOKHYLLA`,
+
+      exLost: `// ===================================================
+// Ejemplo D: Fábrica Temeraria (Sin Fieltros Protectorios)
+// ADVERTENCIA: Al no incluir tacos de fieltro (_),
+// el montador perderá aleatoriamente una pieza crítica.
+// ===================================================
+[!]
+###>
+---# 15
+---# 27
+[L] VÄRMLAND_TV`,
+
+      exFel: `// ===================================================
+// Ejemplo E: Violación de Pureza Nórdica
+// Este código fallará con Fel 102 porque 'SILLA_MESA'
+// no contiene vocales nórdicas (å, ä, ö, ø, æ).
+// ===================================================
+[!]
+---# 100
+[L] SILLA_MESA`
+    };
+
+    // ========================================================================
+    // 2. MODO DE RESALTADO DE SINTAXIS PARA CODEMIRROR
+    // ========================================================================
+    if (window.CodeMirror) {
+      CodeMirror.defineMode("ikealang", function() {
+        return {
+          token: function(stream) {
+            // Comentarios
+            if (stream.match(/\/\/.*/) || stream.match(/#.*/)) {
+              return "ikea-comment";
+            }
+            
+            // Fieltro protector (_)
+            if (stream.match(/\(_\)/)) {
+              return "ikea-felt";
+            }
+
+            // Llave Allen [L]
+            if (stream.match(/\[L\]/)) {
+              return "ikea-allen";
+            }
+
+            // Mueble terminado [x]
+            if (stream.match(/\[x\]/)) {
+              return "ikea-slut";
+            }
+
+            // Martillo de goma [T=]
+            if (stream.match(/\[T=\]/)) {
+              return "ikea-hammer";
+            }
+
+            // Salida STDOUT [!]
+            if (stream.match(/\[!\]/)) {
+              return "ikea-print";
+            }
+
+            // Salto condicional [?]
+            if (stream.match(/\[\?\]/)) {
+              return "ikea-branch";
+            }
+
+            // Taco de pared |==|
+            if (stream.match(/\|==\|/)) {
+              return "ikea-anchor";
+            }
+
+            // Clavija madera ---#
+            if (stream.match(/---#/)) {
+              return "ikea-peg";
+            }
+
+            // Clavija rota ---x
+            if (stream.match(/---x/)) {
+              return "ikea-broken";
+            }
+
+            // Tornillo Allen ###>
+            if (stream.match(/###>/)) {
+              return "ikea-screw";
+            }
+
+            // Destornillador <###
+            if (stream.match(/<###/)) {
+              return "ikea-screwdriver";
+            }
+
+            // Perno de unión *##*
+            if (stream.match(/\*##\*/)) {
+              return "ikea-bolt";
+            }
+
+            // Arandela (o)
+            if (stream.match(/\(o\)/)) {
+              return "ikea-washer";
+            }
+
+            // Nivel oscilante ~~~~
+            if (stream.match(/~~~~/)) {
+              return "ikea-loop";
+            }
+
+            // Números enteros
+            if (stream.match(/-?\d+/)) {
+              return "ikea-number";
+            }
+
+            // Identificadores y palabras nórdicas
+            if (stream.match(/[a-zA-ZåäöøæÅÄÖØÆ_][a-zA-Z0-9åäöøæÅÄÖØÆ_]*/)) {
+              return "ikea-nordic";
+            }
+
+            stream.next();
+            return null;
+          }
+        };
+      });
+
+      // Autocompletado / IntelliSense en CodeMirror
+      CodeMirror.registerHelper("hint", "ikealang", function(cm) {
+        const cur = cm.getCursor();
+        const token = cm.getTokenAt(cur);
+        const start = token.start;
+        const end = cur.ch;
+        const word = token.string.slice(0, end - start);
+
+        const completions = [
+          { text: "[L] ", displayText: "[L] Insexnyckel (Llave Allen - Subrutina)" },
+          { text: "---# ", displayText: "---# <n> Träplugg (Clavija - PUSH entero)" },
+          { text: "###>", displayText: "###> Skruv (Tornillo Allen - ADD)" },
+          { text: "<### ", displayText: "<### <n> Skruvmejsel (Destornillador - SUB)" },
+          { text: "*##*", displayText: "*##* Excenter (Perno unión - MUL)" },
+          { text: "(o)", displayText: "(o) Bricka (Arandela - DUP)" },
+          { text: "---x", displayText: "---x Kasserad (Clavija rota - DROP)" },
+          { text: "[T=]", displayText: "[T=] Gummiklubba (Martillo goma - Cast Int)" },
+          { text: "|==| ", displayText: "|==| <ID> <v> Väggplugg (Taco pared - Const)" },
+          { text: "(_)", displayText: "(_) FIXA (Fieltro nivelador - Defect Shield)" },
+          { text: "[?] ", displayText: "[?] <LABEL> Förvirrad (Salto condicional <= 0)" },
+          { text: "~~~~", displayText: "~~~~ Vattenpass (Nivel - Loop de regreso)" },
+          { text: "[!]", displayText: "[!] Kundservice (Teléfono - Imprimir TOP)" },
+          { text: "[x]", displayText: "[x] Slut (Fin de subrutina)" }
+        ];
+
+        const list = completions.filter(item => 
+          item.text.toLowerCase().startsWith(word.toLowerCase()) || 
+          item.displayText.toLowerCase().includes(word.toLowerCase())
+        );
+
+        return {
+          list: list.length ? list : completions,
+          from: CodeMirror.Pos(cur.line, start),
+          to: CodeMirror.Pos(cur.line, end)
+        };
+      });
+    }
+
+    // ========================================================================
+    // 3. CLASE DEL INTÉRPRETE Y MÁQUINA VIRTUAL BOTTOM-UP
+    // ========================================================================
+    class IkeaVM {
+      constructor() {
+        this.reset();
+        this.defectRate = true;
+        this.maxIterations = 10000;
+        this.onOutput = null;
+        this.onLog = null;
+        this.onWarning = null;
+        this.onError = null;
+        this.onStateChange = null;
+      }
+
+      reset() {
+        this.stack = [];
+        this.wallAnchors = {};
+        this.instructions = []; // Array de { lineNo, raw, op, arg1, arg2 }
+        this.pc = 0; // Puntero de instrucción bottom-up (0 = última línea física)
+        this.stepCount = 0;
+        this.lostPieceIndex = -1;
+        this.feltShieldConsumed = false;
+        this.isRunning = false;
+        this.isHalted = false;
+        this.isFinished = false;
+        this.timer = null;
+      }
+
+      log(msg, type = "system") {
+        if (this.onLog) this.onLog(msg, type);
+      }
+
+      output(val) {
+        if (this.onOutput) this.onOutput(val);
+      }
+
+      warning(msg) {
+        if (this.onWarning) this.onWarning(msg);
+      }
+
+      error(msg) {
+        if (this.onError) this.onError(msg);
+      }
+
+      notifyState() {
+        if (this.onStateChange) this.onStateChange(this);
+      }
+
+      /**
+       * Carga y parsea el código fuente invirtiendo el orden (Bottom-Up)
+       */
+      load(sourceCode) {
+        this.reset();
+        const rawLines = sourceCode.split("\n");
+        const parsed = [];
+
+        // Mapear cada línea no vacía con su número físico original (1-indexed)
+        for (let i = 0; i < rawLines.length; i++) {
+          const raw = rawLines[i].trim();
+          if (raw && !raw.startsWith("//") && !raw.startsWith("#")) {
+            parsed.push({
+              physicalLine: i + 1,
+              text: raw
+            });
+          }
+        }
+
+        if (parsed.length === 0) {
+          throw new Error("El paquete está vacío. No hay piezas para montar.");
+        }
+
+        // ====================================================================
+        // REGLA 1: FLUJO BOTTOM-UP (Inversión Vectorial)
+        // ====================================================================
+        // La última línea física del archivo pasa a ser el índice 0 de ejecución.
+        this.instructions = parsed.reverse();
+
+        // ====================================================================
+        // REGLA 2: PUREZA FONÉTICA NÓRDICA
+        // ====================================================================
+        for (const inst of this.instructions) {
+          if (inst.text.startsWith("[L]")) {
+            const label = inst.text.replace("[L]", "").trim();
+            const hasNordic = Array.from(label).some(c => NORDIC_CHARS.has(c));
+            if (!hasNordic) {
+              const err = `Fel 102: Saknas svensk själ en la estructura '${label}' (Línea física ${inst.physicalLine}). ¡Se requiere al menos una vocal nórdica (å, ä, ö, ø, æ)!`;
+              this.error(err);
+              throw new Error(err);
+            }
+          }
+        }
+
+        // ====================================================================
+        // REGLA 3: MECÁNICA DEL TORNILLO PERDIDO
+        // ====================================================================
+        if (this.defectRate && this.instructions.length > 2) {
+          // Comprobar si existen tacos de fieltro protector (_)
+          const feltIndices = [];
+          for (let i = 0; i < this.instructions.length; i++) {
+            if (this.instructions[i].text === "(_)") {
+              feltIndices.push(i);
+            }
+          }
+
+          if (feltIndices.length > 0) {
+            // El fieltro absorbe el defecto de fábrica
+            const randomFeltIdx = feltIndices[Math.floor(Math.random() * feltIndices.length)];
+            const consumed = this.instructions[randomFeltIdx];
+            // Eliminar el fieltro
+            this.instructions.splice(randomFeltIdx, 1);
+            this.feltShieldConsumed = true;
+            this.log(`🛡️ TACK: El taco de fieltro FIXA en la línea física ${consumed.physicalLine} absorbió el defecto de fábrica. La estructura permanece estable.`, "felt-saved");
+          } else {
+            // Sin fieltros: perder aleatoriamente 1 instrucción operativa
+            // Escogemos un índice > 0 para no romper siempre la inicialización si hay alternativas
+            const lostIdx = Math.floor(Math.random() * (this.instructions.length - 1)) + 1;
+            const lostInst = this.instructions[lostIdx];
+            this.lostPieceIndex = lostInst.physicalLine;
+            this.instructions.splice(lostIdx, 1);
+            this.warning(`⚠️ VARNING: ¡Fallo de fábrica del montador! Se ha perdido una pieza crítica en el paso ${lostIdx + 1} ('${lostInst.text}', Línea física ${lostInst.physicalLine}).`);
+          }
+        }
+
+        this.log(`📦 Mueble cargado: ${this.instructions.length} piezas listas para ensamblar.`, "system");
+        this.notifyState();
+      }
+
+      /**
+       * Ejecuta exactamente un paso en el ciclo Bottom-Up
+       */
+      step() {
+        if (this.isFinished || this.isHalted) {
+          return false;
+        }
+
+        if (this.pc >= this.instructions.length) {
+          this.isFinished = true;
+          this.log(`🎉 ¡Mueble completamente ensamblado y nivelado en ${this.stepCount} pasos! Slut.`, "system");
+          this.notifyState();
+          return false;
+        }
+
+        this.stepCount++;
+        if (this.stepCount > this.maxIterations) {
+          const err = `Fel 500: Límite de seguridad alcanzado (${this.maxIterations} pasos). Posible bucle infinito en cojera de mueble (~~~~).`;
+          this.error(err);
+          this.isHalted = true;
+          this.notifyState();
+          return false;
+        }
+
+        const currentInst = this.instructions[this.pc];
+        const text = currentInst.text;
+        const lineNo = currentInst.physicalLine;
+
+        // Registrar detalle del paso
+        let stepDetail = `Paso ${this.stepCount} [Línea ${lineNo}]: ${text}`;
+
+        try {
+          // ---# <N> (Clavija de madera / PUSH)
+          if (text.startsWith("---#")) {
+            const parts = text.split(/\s+/);
+            const val = parseInt(parts[1], 10);
+            if (isNaN(val)) throw new Error(`Valor entero inválido en clavija: ${text}`);
+            this.stack.push(val);
+            stepDetail += ` ➔ PUSH ${val}`;
+          }
+          // (o) (Arandela / DUP)
+          else if (text === "(o)") {
+            if (this.stack.length === 0) throw new Error("Pila vacía al intentar usar arandela (o)");
+            const top = this.stack[this.stack.length - 1];
+            this.stack.push(top);
+            stepDetail += ` ➔ DUP ${top}`;
+          }
+          // ---x (Clavija partida / POP)
+          else if (text === "---x") {
+            if (this.stack.length === 0) throw new Error("Pila vacía al intentar desechar clavija partida ---x");
+            const popped = this.stack.pop();
+            stepDetail += ` ➔ POP ${popped}`;
+          }
+          // ###> (Tornillo Allen / ADD)
+          else if (text === "###>") {
+            if (this.stack.length < 2) throw new Error("Se requieren al menos 2 piezas en la pila para el tornillo Allen ###>");
+            const b = this.stack.pop();
+            const a = this.stack.pop();
+            const sum = a + b;
+            this.stack.push(sum);
+            stepDetail += ` ➔ ADD (${a} + ${b}) = ${sum}`;
+          }
+          // <### <N> (Destornillador / SUB)
+          else if (text.startsWith("<###")) {
+            const parts = text.split(/\s+/);
+            const val = parseInt(parts[1], 10);
+            if (isNaN(val)) throw new Error(`Valor entero inválido para destornillador: ${text}`);
+            if (this.stack.length === 0) throw new Error("Pila vacía para operar destornillador <###");
+            this.stack[this.stack.length - 1] -= val;
+            stepDetail += ` ➔ SUB ${val} (Nuevo tope: ${this.stack[this.stack.length - 1]})`;
+          }
+          // *##* (Perno de unión rápida / MUL)
+          else if (text === "*##*") {
+            if (this.stack.length < 2) throw new Error("Se requieren al menos 2 piezas en la pila para el perno *##*");
+            const b = this.stack.pop();
+            const a = this.stack.pop();
+            const prod = a * b;
+            this.stack.push(prod);
+            stepDetail += ` ➔ MUL (${a} * ${b}) = ${prod}`;
+          }
+          // [T=] (Martillo de goma / Coerción forzada)
+          else if (text === "[T=]") {
+            if (this.stack.length > 0) {
+              const top = this.stack[this.stack.length - 1];
+              const coerced = parseInt(top, 10) || 0;
+              this.stack[this.stack.length - 1] = coerced;
+              stepDetail += ` ➔ CAST INT ${coerced}`;
+            }
+          }
+          // |==| <VAR> <N> (Taco de pared / Memoria global)
+          else if (text.startsWith("|==|")) {
+            const parts = text.split(/\s+/);
+            const varName = parts[1];
+            const val = parseInt(parts[2], 10);
+            if (!varName || isNaN(val)) throw new Error(`Sintaxis inválida en taco de pared |==|: ${text}`);
+            this.wallAnchors[varName] = val;
+            this.stack.push(val);
+            stepDetail += ` ➔ ANCLAJE [${varName} = ${val}] & PUSH ${val}`;
+          }
+          // (_) (Fieltro nivelador)
+          else if (text === "(_)") {
+            stepDetail += ` ➔ NOP (Fieltro nivelador)`;
+          }
+          // [L] <NOMBRE> (Llave Allen / Bloque)
+          else if (text.startsWith("[L]")) {
+            const name = text.replace("[L]", "").trim();
+            stepDetail += ` ➔ ENTRADA BLOQUE: ${name}`;
+          }
+          // [x] (Mueble empaquetado / Slut)
+          else if (text === "[x]") {
+            stepDetail += ` ➔ CIERRE DE MUEBLE (Slut)`;
+            this.pc++;
+            this.log(stepDetail, "step");
+            this.isFinished = true;
+            this.log(`📦 Mueble empaquetado con éxito [x].`, "system");
+            this.notifyState();
+            return false;
+          }
+          // [!] (Kundservice / STDOUT)
+          else if (text === "[!]") {
+            if (this.stack.length === 0) throw new Error("Pila vacía: No hay piezas para mostrar con [!]");
+            const top = this.stack[this.stack.length - 1];
+            this.output(top);
+            stepDetail += ` ➔ UDGÅNG: ${top}`;
+          }
+          // [?] <LABEL> (Salto condicional si TOP <= 0)
+          else if (text.startsWith("[?]")) {
+            const parts = text.split(/\s+/);
+            const targetLabel = parts[1];
+            const top = this.stack.length > 0 ? this.stack[this.stack.length - 1] : 0;
+            if (top <= 0) {
+              // Buscar índice de la subrutina [L] <targetLabel>
+              const targetIdx = this.instructions.findIndex(i => i.text === `[L] ${targetLabel}`);
+              if (targetIdx !== -1) {
+                this.pc = targetIdx;
+                stepDetail += ` ➔ SALTO (Top ${top} <= 0) a ${targetLabel}`;
+                this.log(stepDetail, "step");
+                this.notifyState();
+                return true;
+              } else {
+                throw new Error(`Etiqueta de salto no encontrada: [L] ${targetLabel}`);
+              }
+            } else {
+              stepDetail += ` ➔ Condición falsa (Top ${top} > 0), no salta`;
+            }
+          }
+          // ~~~~ (Nivel oscilante / Loop de regreso a la base del bloque)
+          else if (text === "~~~~") {
+            // Regresa hacia la cabeza del bucle (la primera instrucción tras el setup o condición [?])
+            let loopHead = 0;
+            for (let i = this.pc - 1; i >= 0; i--) {
+              if (this.instructions[i].text.startsWith("[?]")) {
+                for (let j = i - 1; j >= 0; j--) {
+                  const t = this.instructions[j].text;
+                  if (t.startsWith("---#") || t.startsWith("|==|") || t === "(_)") {
+                    loopHead = j + 1;
+                    break;
+                  }
+                }
+                break;
+              }
+              if (this.instructions[i].text.startsWith("[L]")) {
+                loopHead = i;
+                break;
+              }
+            }
+            this.pc = loopHead;
+            stepDetail += ` ➔ LOOP OSCILANTE (Regreso a paso ${loopHead + 1})`;
+            this.log(stepDetail, "step");
+            this.notifyState();
+            return true;
+          }
+          else {
+            stepDetail += ` ➔ Instrucción no reconocida`;
+          }
+
+          this.log(stepDetail, "step");
+          this.pc++;
+          this.notifyState();
+          return true;
+
+        } catch (err) {
+          this.error(`Fel i monteringen en paso ${this.stepCount} (Línea física ${lineNo}): ${err.message}`);
+          this.isHalted = true;
+          this.notifyState();
+          return false;
+        }
+      }
+
+      /**
+       * Ejecuta de forma continua con velocidad configurable
+       */
+      runContinuous(delayMs = 400) {
+        this.stopContinuous();
+        this.isRunning = true;
+        this.notifyState();
+
+        const tick = () => {
+          if (!this.isRunning) return;
+          const hasMore = this.step();
+          if (hasMore && !this.isFinished && !this.isHalted) {
+            if (delayMs > 0) {
+              this.timer = setTimeout(tick, delayMs);
+            } else {
+              // Turbo: ejecutar en bucle por tandas para no bloquear la UI
+              let burst = 0;
+              while (burst < 200 && this.step()) {
+                burst++;
+              }
+              if (!this.isFinished && !this.isHalted) {
+                this.timer = setTimeout(tick, 0);
+              } else {
+                this.isRunning = false;
+                this.notifyState();
+              }
+            }
+          } else {
+            this.isRunning = false;
+            this.notifyState();
+          }
+        };
+
+        tick();
+      }
+
+      stopContinuous() {
+        this.isRunning = false;
+        if (this.timer) {
+          clearTimeout(this.timer);
+          this.timer = null;
+        }
+        this.notifyState();
+      }
+    }
+
+    // ========================================================================
+    // 4. CONTROLADOR DE LA INTERFAZ DE USUARIO (UI CONTROLLER)
+    // ========================================================================
+    document.addEventListener("DOMContentLoaded", () => {
+      // Elementos DOM
+      const textarea = document.getElementById("code-editor");
+      const btnRun = document.getElementById("btn-run");
+      const btnStep = document.getElementById("btn-step");
+      const btnReset = document.getElementById("btn-reset");
+      const selectSpeed = document.getElementById("select-speed");
+      const selectExample = document.getElementById("select-example");
+      const toggleDefect = document.getElementById("toggle-defect");
+      const toggleReverseLines = document.getElementById("toggle-reverse-lines");
+      const consoleOutput = document.getElementById("console-output");
+      const btnClearConsole = document.getElementById("btn-clear-console");
+      const flatpackContainer = document.getElementById("flatpack-container");
+      const flatpackEmpty = document.getElementById("flatpack-empty");
+      const stackCount = document.getElementById("stack-count");
+      const wallAnchorsList = document.getElementById("wall-anchors-list");
+      const wallAnchorEmpty = document.getElementById("wall-anchor-empty");
+      const statPc = document.getElementById("stat-pc");
+      const statStep = document.getElementById("stat-step");
+      const statFelts = document.getElementById("stat-felts");
+      const statLost = document.getElementById("stat-lost");
+      const badgeStatus = document.getElementById("badge-status");
+      const badgeDirection = document.getElementById("badge-direction");
+      const manualModal = document.getElementById("manual-modal");
+      const btnManual = document.getElementById("btn-manual");
+      const modalCloseBtn = document.getElementById("modal-close-btn");
+
+      // Inicializar Máquina Virtual
+      const vm = new IkeaVM();
+      let editor = null;
+      let activeLineHandle = null;
+
+      // Inicializar CodeMirror
+      if (window.CodeMirror) {
+        editor = CodeMirror.fromTextArea(textarea, {
+          mode: "ikealang",
+          lineNumbers: true,
+          styleActiveLine: true,
+          extraKeys: {
+            "Ctrl-Space": "autocomplete"
+          },
+          lineNumberFormatter: function(line) {
+            if (toggleReverseLines.checked && editor) {
+              const total = editor.lineCount();
+              return (total - line + 1) + " ↑";
+            }
+            return line;
+          }
+        });
+
+        // Autocompletar inteligente al tipear caracteres clave
+        editor.on("inputRead", function(cm, change) {
+          if (change.text[0] === "[" || change.text[0] === "-" || change.text[0] === "#" || change.text[0] === "|" || change.text[0] === "(") {
+            cm.showHint({ hint: CodeMirror.hint.ikealang, completeSingle: false });
+          }
+        });
+      }
+
+      // Cargar ejemplo inicial A
+      function loadExample(key) {
+        const code = EXAMPLES[key] || EXAMPLES.exA;
+        if (editor) {
+          editor.setValue(code.trim());
+          editor.clearHistory();
+        } else {
+          textarea.value = code.trim();
+        }
+        resetAll();
+      }
+
+      // Logging a la Consola
+      function addConsoleLine(text, type = "system") {
+        const line = document.createElement("div");
+        line.className = `console-line ${type}`;
+
+        const time = new Date().toTimeString().split(" ")[0];
+        const timeSpan = document.createElement("span");
+        timeSpan.className = "console-line-time";
+        timeSpan.textContent = time;
+
+        const textSpan = document.createElement("span");
+        textSpan.textContent = text;
+
+        line.appendChild(timeSpan);
+        line.appendChild(textSpan);
+        consoleOutput.appendChild(line);
+        consoleOutput.scrollTop = consoleOutput.scrollHeight;
+      }
+
+      // Conectar eventos del VM
+      vm.onOutput = (val) => {
+        addConsoleLine(`UDGÅNG (Salida): ${val}`, "output");
+      };
+
+      vm.onLog = (msg, type) => {
+        addConsoleLine(msg, type);
+      };
+
+      vm.onWarning = (msg) => {
+        addConsoleLine(msg, "warning");
+      };
+
+      vm.onError = (msg) => {
+        addConsoleLine(msg, "error");
+      };
+
+      vm.onStateChange = (machine) => {
+        updateInspectorUI(machine);
+        updateHighlightLine(machine);
+      };
+
+      // Resaltar la línea activa en el editor
+      function updateHighlightLine(machine) {
+        if (!editor) return;
+
+        if (activeLineHandle) {
+          editor.removeLineClass(activeLineHandle, "background", "executing-line-bg");
+          activeLineHandle = null;
+        }
+
+        if (machine.pc < machine.instructions.length && !machine.isFinished && !machine.isHalted) {
+          const current = machine.instructions[machine.pc];
+          if (current) {
+            const line0 = current.physicalLine - 1;
+            activeLineHandle = editor.addLineClass(line0, "background", "executing-line-bg");
+            editor.scrollIntoView({ line: line0, ch: 0 }, 100);
+          }
+        }
+      }
+
+      // Actualizar Inspector de Memoria (Flatpack & Wall Anchors)
+      function updateInspectorUI(machine) {
+        // 1. Pila de Piezas (PAKKET)
+        stackCount.textContent = `${machine.stack.length} piezas`;
+        
+        // Limpiar items anteriores (manteniendo el empty state)
+        const oldItems = flatpackContainer.querySelectorAll(".flatpack-item");
+        oldItems.forEach(el => el.remove());
+
+        if (machine.stack.length === 0) {
+          flatpackEmpty.style.display = "flex";
+        } else {
+          flatpackEmpty.style.display = "none";
+          machine.stack.forEach((val, idx) => {
+            const item = document.createElement("div");
+            const isTop = idx === machine.stack.length - 1;
+            item.className = `flatpack-item ${isTop ? "top-item" : ""}`;
+            
+            item.innerHTML = `
+              <span class="flatpack-item-val">${val}</span>
+              <span class="flatpack-item-badge">${isTop ? "TOPE (TOP)" : `#${idx + 1}`}</span>
+            `;
+            flatpackContainer.appendChild(item);
+          });
+        }
+
+        // 2. Anclajes de Pared
+        wallAnchorsList.innerHTML = "";
+        const anchors = Object.entries(machine.wallAnchors);
+        if (anchors.length === 0) {
+          wallAnchorsList.appendChild(wallAnchorEmpty);
+        } else {
+          anchors.forEach(([k, v]) => {
+            const card = document.createElement("div");
+            card.className = "wall-anchor-card";
+            card.innerHTML = `
+              <span class="wall-anchor-var">🔒 |==| ${k}</span>
+              <span class="wall-anchor-val">${v}</span>
+            `;
+            wallAnchorsList.appendChild(card);
+          });
+        }
+
+        // 3. Métricas
+        statPc.textContent = machine.pc < machine.instructions.length ? machine.pc : "FIN";
+        statStep.textContent = machine.stepCount;
+        
+        // Contar fieltros restantes en el código cargado
+        let feltsCount = 0;
+        machine.instructions.forEach(i => {
+          if (i.text === "(_)") feltsCount++;
+        });
+        statFelts.textContent = feltsCount;
+        statLost.textContent = machine.lostPieceIndex !== -1 ? 1 : 0;
+
+        // Badge de estado
+        if (machine.isRunning) {
+          badgeStatus.textContent = "Montando...";
+          badgeStatus.className = "indicator-badge status-running";
+          btnRun.innerHTML = `
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="4" width="4" height="16"></rect>
+              <rect x="14" y="4" width="4" height="16"></rect>
+            </svg>
+            Pausar
+          `;
+        } else if (machine.isFinished) {
+          badgeStatus.textContent = "Terminado";
+          badgeStatus.className = "indicator-badge status-ok";
+          btnRun.innerHTML = `
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+            Ensamblar de Nuevo
+          `;
+        } else if (machine.isHalted) {
+          badgeStatus.textContent = "Detenido por Error";
+          badgeStatus.className = "indicator-badge";
+          btnRun.innerHTML = `
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+            Reensamblar
+          `;
+        } else {
+          badgeStatus.textContent = "En Espera";
+          badgeStatus.className = "indicator-badge";
+          btnRun.innerHTML = `
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+            Ensamblar y Ejecutar
+          `;
+        }
+      }
+
+      // Restablecer entorno
+      function resetAll() {
+        vm.stopContinuous();
+        vm.reset();
+        if (activeLineHandle && editor) {
+          editor.removeLineClass(activeLineHandle, "background", "executing-line-bg");
+          activeLineHandle = null;
+        }
+        updateInspectorUI(vm);
+        addConsoleLine("↺ Entorno desmontado. Pila limpia.", "system");
+      }
+
+      // Preparar código antes de correr si no está cargado
+      function ensureLoaded() {
+        if (vm.instructions.length === 0 || vm.isFinished || vm.isHalted) {
+          const code = editor ? editor.getValue() : textarea.value;
+          vm.defectRate = toggleDefect.checked;
+          vm.load(code);
+        }
+      }
+
+      // ======================================================================
+      // EVENTOS DE CONTROL
+      // ======================================================================
+
+      // Botón Ejecutar / Pausar
+      btnRun.addEventListener("click", () => {
+        if (vm.isRunning) {
+          vm.stopContinuous();
+        } else {
+          try {
+            ensureLoaded();
+            const delay = parseInt(selectSpeed.value, 10);
+            vm.runContinuous(delay);
+          } catch (e) {
+            // Ya registrado en vm.error
+          }
+        }
+      });
+
+      // Botón Paso a Paso
+      btnStep.addEventListener("click", () => {
+        if (vm.isRunning) {
+          vm.stopContinuous();
+        }
+        try {
+          ensureLoaded();
+          vm.step();
+        } catch (e) {
+          // Ya registrado
+        }
+      });
+
+      // Botón Desmontar
+      btnReset.addEventListener("click", () => {
+        resetAll();
+      });
+
+      // Cambio de Ejemplo
+      selectExample.addEventListener("change", (e) => {
+        loadExample(e.target.value);
+      });
+
+      // Toggle Defecto de Fábrica
+      toggleDefect.addEventListener("change", () => {
+        vm.defectRate = toggleDefect.checked;
+        addConsoleLine(`Mecánica del Tornillo Perdido: ${vm.defectRate ? "ACTIVADA (Riesgo de hardware)" : "DESACTIVADA (Modo seguro)"}`, "system");
+      });
+
+      // Toggle Numeración de Líneas Bottom-Up
+      toggleReverseLines.addEventListener("change", () => {
+        if (editor) {
+          editor.refresh();
+        }
+        badgeDirection.textContent = toggleReverseLines.checked 
+          ? "▲ Flujo: Bottom-Up (Línea N ➔ Línea 1)" 
+          : "▼ Flujo: Top-Down tradicional";
+      });
+
+      // Inserción de Snippets rápidos
+      document.querySelectorAll(".chip-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const textToInsert = btn.getAttribute("data-insert");
+          if (editor) {
+            const doc = editor.getDoc();
+            const cursor = doc.getCursor();
+            doc.replaceRange(textToInsert, cursor);
+            editor.focus();
+          }
+        });
+      });
+
+      // Filtro de pestañas de consola
+      document.querySelectorAll(".console-tab").forEach(tab => {
+        tab.addEventListener("click", () => {
+          document.querySelectorAll(".console-tab").forEach(t => t.classList.remove("active"));
+          tab.classList.add("active");
+          const filter = tab.getAttribute("data-filter");
+
+          const lines = consoleOutput.querySelectorAll(".console-line");
+          lines.forEach(line => {
+            if (filter === "all") {
+              line.style.display = "flex";
+            } else if (filter === "output") {
+              line.style.display = line.classList.contains("output") ? "flex" : "none";
+            } else if (filter === "warnings") {
+              line.style.display = (line.classList.contains("warning") || line.classList.contains("felt-saved") || line.classList.contains("error")) ? "flex" : "none";
+            }
+          });
+        });
+      });
+
+      // Limpiar Consola
+      btnClearConsole.addEventListener("click", () => {
+        consoleOutput.innerHTML = `
+          <div class="console-line system">
+            <span class="console-line-time">${new Date().toTimeString().split(" ")[0]}</span>
+            <span>[SYSTEM] Consola limpiada (Rensad).</span>
+          </div>
+        `;
+      });
+
+      // Modal de Manual
+      btnManual.addEventListener("click", () => {
+        manualModal.classList.add("open");
+      });
+
+      modalCloseBtn.addEventListener("click", () => {
+        manualModal.classList.remove("open");
+      });
+
+      manualModal.addEventListener("click", (e) => {
+        if (e.target === manualModal) manualModal.classList.remove("open");
+      });
+
+      // Cargar código inicial
+      loadExample("exA");
+    });
+  </script>
+</body>
+</html>
