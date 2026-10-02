@@ -13,6 +13,9 @@ import {
   loadFileSystem,
   saveFileSystem,
   createInitialFileSystem,
+  exportRealFileToDisk,
+  importRealFileFromDisk,
+  openRealDirectoryFromDisk,
 } from './core/fileSystem.ts';
 import { ProgramNode, Diagnostic, ExecutionState, detectFurnitureModel } from './core/types.ts';
 
@@ -42,10 +45,8 @@ export const App: React.FC = () => {
     saveFileSystem(fsItems);
   }, [fsItems]);
 
-  // Find initial active file (default to 'main.ikea' or first file found)
+  // Find initial active file (first file in workspace)
   const [activeFileId, setActiveFileId] = useState<string>(() => {
-    const mainFile = fsItems.find(i => i.type === 'file' && i.name === 'main.ikea');
-    if (mainFile) return mainFile.id;
     const firstFile = fsItems.find(i => i.type === 'file');
     return firstFile ? firstFile.id : 'default-file';
   });
@@ -125,8 +126,8 @@ export const App: React.FC = () => {
         setActiveFileId(remainingFiles[0].id);
         setCode(remainingFiles[0].content);
       } else {
-        // Create a blank main.ikea
-        handleCreateItem('main.ikea', 'file', null);
+        // Create an empty nuevo_mueble.ikea
+        handleCreateItem('nuevo_mueble.ikea', 'file', null);
       }
     }
   };
@@ -143,12 +144,76 @@ export const App: React.FC = () => {
     soundEffects.playWoodenSnap();
     const initial = createInitialFileSystem();
     setFsItems(initial);
-    const mainFile = initial.find(i => i.name === 'main.ikea');
-    if (mainFile) {
-      setActiveFileId(mainFile.id);
-      setCode(mainFile.content);
+    const first = initial.find(i => i.type === 'file');
+    if (first) {
+      setActiveFileId(first.id);
+      setCode(first.content);
     }
   };
+
+  // Real Desktop File Integration (Windows Disk Read/Write)
+  const handleImportRealFile = async () => {
+    const file = await importRealFileFromDisk();
+    if (!file) return;
+    soundEffects.playWoodenSnap();
+    const newId = `real-${Date.now()}`;
+    const newItem: FSItem = {
+      id: newId,
+      name: file.name,
+      type: 'file',
+      parentId: null,
+      content: file.content,
+      isRealDisk: true,
+    };
+    setFsItems(prev => [newItem, ...prev]);
+    setActiveFileId(newId);
+    setCode(file.content);
+  };
+
+  const handleExportRealFile = async () => {
+    soundEffects.playCelebration();
+    await exportRealFileToDisk(activeFile.name, code);
+  };
+
+  const handleOpenRealFolder = async () => {
+    const folderItems = await openRealDirectoryFromDisk();
+    if (!folderItems || folderItems.length === 0) return;
+    soundEffects.playCelebration();
+    setFsItems(prev => [...folderItems, ...prev]);
+    const firstFile = folderItems.find(i => i.type === 'file');
+    if (firstFile) {
+      setActiveFileId(firstFile.id);
+      setCode(firstFile.content);
+    }
+  };
+
+  const handleImportDroppedFile = (name: string, content: string) => {
+    soundEffects.playWoodenSnap();
+    const newId = `dropped-${Date.now()}`;
+    const newItem: FSItem = {
+      id: newId,
+      name,
+      type: 'file',
+      parentId: null,
+      content,
+      isRealDisk: true,
+    };
+    setFsItems(prev => [newItem, ...prev]);
+    setActiveFileId(newId);
+    setCode(content);
+  };
+
+  // Global Ctrl+S / Cmd+S handler to save/export real file to disk
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleExportRealFile();
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [activeFile.name, code]);
 
   // 2. UI & Workspace State
   const [mode, setMode] = useState<WorkspaceMode>('editor');
@@ -353,6 +418,10 @@ export const App: React.FC = () => {
             onDeleteItem={handleDeleteItem}
             onToggleDirectory={handleToggleDirectory}
             onResetFileSystem={handleResetFileSystem}
+            onImportRealFile={handleImportRealFile}
+            onExportRealFile={handleExportRealFile}
+            onOpenRealFolder={handleOpenRealFolder}
+            onImportDroppedFile={handleImportDroppedFile}
             ast={ast}
           />
         )}

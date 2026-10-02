@@ -41,15 +41,11 @@ export const MascotAdvisor: React.FC<MascotAdvisorProps> = ({
   let message = '¡Hej! Soy Gubbe, tu asistente de montaje. Revisa el manual antes de apretar.';
 
   const leftoverDiag = diagnostics.find(d => d.code === 'PIEZAS_SOBRANTES');
-  const panicDiag = diagnostics.find(d => d.code === 'PANICO_VUELCO');
   const errorDiag = diagnostics.find(d => d.severity === 'error');
 
   if (executionState.status === 'completed') {
     mascotMood = 'celebrating';
-    message = '¡Fantastisk! Mueble ensamblado al 100%. Sin piezas sobrantes en el suelo.';
-  } else if (panicDiag) {
-    mascotMood = 'panic';
-    message = '¡Cuidado con el vuelco! Sujeta la estructura con dos personas (bloque ENTRE_DOS).';
+    message = '¡Fantastisk! Mueble ensamblado al 100% con solidez y sin piezas sobrantes.';
   } else if (leftoverDiag) {
     mascotMood = 'confused';
     message = leftoverDiag.mascotHint || 'Me rasco la cabeza: te sobran piezas en la caja que nunca has ensamblado.';
@@ -99,8 +95,6 @@ export const MascotAdvisor: React.FC<MascotAdvisorProps> = ({
           {/* Mouth */}
           {mascotMood === 'celebrating' ? (
             <path d="M16 28 Q24 38 32 28" fill="none" stroke="#0058a3" strokeWidth="3" strokeLinecap="round" />
-          ) : mascotMood === 'panic' ? (
-            <ellipse cx="24" cy="30" rx="4" ry="6" fill="#0058a3" />
           ) : mascotMood === 'confused' ? (
             <path d="M18 32 Q24 26 30 30" fill="none" stroke="#0058a3" strokeWidth="2.5" strokeLinecap="round" />
           ) : (

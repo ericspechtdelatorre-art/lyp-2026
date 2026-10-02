@@ -286,7 +286,7 @@ const StatementRenderer: React.FC<{ stmt: StatementNode; onRemove: () => void }>
           </button>
         </div>
         <div className="text-xs bg-white/70 dark:bg-black/30 p-2 rounded border border-[#f59e0b]/40 font-mono">
-          Protección antivuelco: 2 montadores operando en paralelo
+          Montaje colaborativo: 2 operarios trabajando en paralelo
         </div>
       </div>
     );

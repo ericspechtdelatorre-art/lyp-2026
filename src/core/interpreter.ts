@@ -305,7 +305,7 @@ export class Interpreter {
 
           case 'SECCIONAR':
             if (Number(right) === 0) {
-              throw new Error('PANICO: VUELCO: División por cero. El mueble pierde apoyo en una de sus patas.');
+              throw new Error('ERROR MATEMATICO: División por cero no permitida en SECCIONAR.');
             }
             return Number(left) / Number(right);
 
@@ -350,7 +350,7 @@ export class Interpreter {
           return null;
         }
         if (expr.callee === 'VOLCAR') {
-          throw new Error(`PANICO: VOLCAR("${args.join(' ')}")`);
+          throw new Error(`PARADA CONTROLADA: VOLCAR("${args.join(' ')}")`);
         }
         return null;
       }

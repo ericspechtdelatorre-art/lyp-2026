@@ -1,5 +1,6 @@
 // ============================================================================
-// IKEALang v1.1 - VS Code Sidebar Explorer (Hierarchical Files & Directories)
+// IKEALang v1.2 - VS Code Sidebar Explorer
+// Real Desktop File Integration (Import/Export to Windows Disk & Open Local Folders)
 // ============================================================================
 
 import React, { useState } from 'react';
@@ -19,6 +20,9 @@ import {
   FileCode,
   FileText,
   RotateCcw,
+  Upload,
+  Download,
+  HardDrive,
 } from 'lucide-react';
 
 interface SidebarExplorerProps {
@@ -29,6 +33,10 @@ interface SidebarExplorerProps {
   onDeleteItem: (id: string) => void;
   onToggleDirectory: (id: string) => void;
   onResetFileSystem: () => void;
+  onImportRealFile: () => void;
+  onExportRealFile: () => void;
+  onOpenRealFolder: () => void;
+  onImportDroppedFile?: (name: string, content: string) => void;
   ast: ProgramNode | null;
 }
 
@@ -40,9 +48,14 @@ export const SidebarExplorer: React.FC<SidebarExplorerProps> = ({
   onDeleteItem,
   onToggleDirectory,
   onResetFileSystem,
+  onImportRealFile,
+  onExportRealFile,
+  onOpenRealFolder,
+  onImportDroppedFile,
   ast,
 }) => {
   const [outlineOpen, setOutlineOpen] = useState(true);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   // Creation state
   const [creationMode, setCreationMode] = useState<{
@@ -68,6 +81,30 @@ export const SidebarExplorer: React.FC<SidebarExplorerProps> = ({
     onCreateItem(name, creationMode.type, creationMode.parentId);
     setCreationName('');
     setCreationMode(null);
+  };
+
+  // Drag and Drop from Windows Explorer
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0 && onImportDroppedFile) {
+      for (let i = 0; i < e.dataTransfer.files.length; i++) {
+        const file = e.dataTransfer.files[i];
+        if (file.name.endsWith('.ikea') || file.name.endsWith('.txt')) {
+          const content = await file.text();
+          onImportDroppedFile(file.name, content);
+        }
+      }
+    }
   };
 
   // Render a directory level recursively
@@ -100,69 +137,71 @@ export const SidebarExplorer: React.FC<SidebarExplorerProps> = ({
               placeholder={creationMode.type === 'file' ? 'archivo.ikea' : 'carpeta'}
               value={creationName}
               onChange={(e) => setCreationName(e.target.value)}
-              onBlur={() => {
-                if (creationName.trim()) {
-                  handleCreateSubmit();
-                } else {
-                  setCreationMode(null);
-                }
-              }}
+              onBlur={() => handleCreateSubmit()}
               onKeyDown={(e) => {
                 if (e.key === 'Escape') setCreationMode(null);
               }}
-              className="flex-1 bg-[#1e1e1e] text-white font-mono text-[11px] px-1.5 py-0.5 rounded border border-[#007acc] outline-none"
+              className="bg-[#3c3c3c] text-white text-[11px] px-1.5 py-0.5 rounded outline-none border border-[#007acc] w-full"
             />
           </form>
         )}
 
         {sorted.map((item) => {
+          // Directory Item
           if (item.type === 'directory') {
-            const isExpanded = item.isOpen ?? true;
+            const isExpanded = item.isOpen !== false;
+
             return (
-              <div key={item.id}>
+              <div key={item.id} className="flex flex-col">
                 <div
-                  style={{ paddingLeft: `${depth * 14 + 8}px` }}
+                  style={{ paddingLeft: `${depth * 14 + 6}px` }}
                   onClick={() => onToggleDirectory(item.id)}
-                  className="w-full pr-2 py-1 flex items-center justify-between font-semibold text-[11px] hover:bg-[#2a2d2e] text-[#cccccc] hover:text-white rounded cursor-pointer group"
+                  className="w-full pr-2 py-1 rounded flex items-center justify-between hover:bg-[#2a2d2e] cursor-pointer group text-[#cccccc] hover:text-white transition-colors"
                 >
                   <div className="flex items-center gap-1 truncate">
                     {isExpanded ? (
-                      <ChevronDown size={13} className="shrink-0 text-[#858585]" />
+                      <ChevronDown size={14} className="text-[#858585] shrink-0" />
                     ) : (
-                      <ChevronRight size={13} className="shrink-0 text-[#858585]" />
+                      <ChevronRight size={14} className="text-[#858585] shrink-0" />
                     )}
                     {isExpanded ? (
-                      <FolderOpen size={14} className="text-[#007acc] shrink-0" />
+                      <FolderOpen size={14} className="text-[#dcb67a] shrink-0" />
                     ) : (
                       <Folder size={14} className="text-[#dcb67a] shrink-0" />
                     )}
-                    <span className="truncate font-mono">{item.name}</span>
+                    <span className="truncate font-semibold text-[12px]">{item.name}</span>
+                    {item.isRealDisk && (
+                      <span className="text-[9px] px-1 rounded bg-[#007acc]/20 text-[#007acc] font-mono ml-1">
+                        DISCO
+                      </span>
+                    )}
                   </div>
 
                   {/* Actions on folder hover */}
-                  <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 shrink-0">
+                  <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5">
+                    {/* Add file inside folder */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         setCreationMode({ type: 'file', parentId: item.id });
-                        if (!isExpanded) onToggleDirectory(item.id);
                       }}
-                      className="p-1 hover:bg-[#37373d] text-[#aaaaaa] hover:text-white rounded"
-                      title="Nuevo archivo dentro de esta carpeta"
+                      className="p-1 hover:bg-[#333333] hover:text-white rounded"
+                      title="Nuevo archivo aquí (.ikea)"
                     >
                       <FilePlus size={12} />
                     </button>
+                    {/* Add subfolder inside folder */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         setCreationMode({ type: 'directory', parentId: item.id });
-                        if (!isExpanded) onToggleDirectory(item.id);
                       }}
-                      className="p-1 hover:bg-[#37373d] text-[#aaaaaa] hover:text-white rounded"
+                      className="p-1 hover:bg-[#333333] hover:text-white rounded"
                       title="Nueva subcarpeta"
                     >
                       <FolderPlus size={12} />
                     </button>
+                    {/* Delete folder */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -170,7 +209,7 @@ export const SidebarExplorer: React.FC<SidebarExplorerProps> = ({
                           onDeleteItem(item.id);
                         }
                       }}
-                      className="p-1 hover:bg-[#37373d] text-red-400 hover:text-red-300 rounded"
+                      className="p-1 text-red-400 hover:text-red-300 hover:bg-[#333333] rounded"
                       title="Eliminar carpeta"
                     >
                       <Trash2 size={12} />
@@ -208,6 +247,11 @@ export const SidebarExplorer: React.FC<SidebarExplorerProps> = ({
                   <FileText size={13} className="text-[#858585] shrink-0" />
                 )}
                 <span className="truncate font-mono text-[12px]">{item.name}</span>
+                {item.isRealDisk && (
+                  <span className="text-[9px] px-1 rounded bg-emerald-500/20 text-emerald-400 font-mono">
+                    REAL
+                  </span>
+                )}
               </div>
 
               {/* Actions on file hover */}
@@ -229,18 +273,52 @@ export const SidebarExplorer: React.FC<SidebarExplorerProps> = ({
   };
 
   return (
-    <aside className="w-64 h-full bg-[#252526] border-r border-[#181818] flex flex-col text-[#cccccc] select-none text-xs shrink-0 overflow-hidden font-sans">
+    <aside
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`w-64 h-full bg-[#252526] border-r border-[#181818] flex flex-col text-[#cccccc] select-none text-xs shrink-0 overflow-hidden font-sans transition-colors ${
+        isDragOver ? 'ring-2 ring-[#007acc] bg-[#2a2d3e]' : ''
+      }`}
+    >
       {/* Explorer Header */}
       <div className="h-9 px-3 flex items-center justify-between font-bold text-[11px] tracking-wider uppercase text-[#bbbbbb] border-b border-[#2d2d2d]">
-        <span>EXPLORADOR</span>
+        <span className="flex items-center gap-1.5">
+          <HardDrive size={13} className="text-[#007acc]" />
+          <span>EXPLORADOR</span>
+        </span>
         <div className="flex items-center gap-1">
+          {/* Import Real File from Disk */}
+          <button
+            onClick={onImportRealFile}
+            className="p-1 hover:bg-[#333333] hover:text-[#007acc] rounded text-[#cccccc] transition-colors"
+            title="Importar archivo real (.ikea) desde el ordenador"
+          >
+            <Upload size={14} />
+          </button>
+          {/* Open Real Directory from Disk */}
+          <button
+            onClick={onOpenRealFolder}
+            className="p-1 hover:bg-[#333333] hover:text-[#ffdb00] rounded text-[#cccccc] transition-colors"
+            title="Abrir carpeta local del ordenador"
+          >
+            <FolderOpen size={14} />
+          </button>
+          {/* Export Active File to Disk */}
+          <button
+            onClick={onExportRealFile}
+            className="p-1 hover:bg-[#333333] hover:text-emerald-400 rounded text-[#cccccc] transition-colors"
+            title="Guardar / Exportar archivo actual al disco (.ikea)"
+          >
+            <Download size={14} />
+          </button>
           {/* New File at Root */}
           <button
             onClick={() => setCreationMode({ type: 'file', parentId: null })}
             className="p-1 hover:bg-[#333333] hover:text-white rounded text-[#cccccc] transition-colors"
-            title="Nuevo archivo en la raíz (.ikea)"
+            title="Nuevo archivo vacío (.ikea)"
           >
-            <FilePlus size={15} />
+            <FilePlus size={14} />
           </button>
           {/* New Folder at Root */}
           <button
@@ -248,7 +326,7 @@ export const SidebarExplorer: React.FC<SidebarExplorerProps> = ({
             className="p-1 hover:bg-[#333333] hover:text-white rounded text-[#cccccc] transition-colors"
             title="Nueva carpeta"
           >
-            <FolderPlus size={15} />
+            <FolderPlus size={14} />
           </button>
           {/* Reset FS */}
           <button
@@ -258,9 +336,9 @@ export const SidebarExplorer: React.FC<SidebarExplorerProps> = ({
               }
             }}
             className="p-1 hover:bg-[#333333] hover:text-white rounded text-[#cccccc] transition-colors"
-            title="Restablecer archivos iniciales"
+            title="Restablecer ejemplos"
           >
-            <RotateCcw size={13} />
+            <RotateCcw size={12} />
           </button>
         </div>
       </div>
@@ -270,25 +348,34 @@ export const SidebarExplorer: React.FC<SidebarExplorerProps> = ({
         <div className="px-1 py-1 font-bold text-[11px] text-[#e7e7e7] tracking-wider uppercase flex items-center justify-between border-b border-[#2d2d2d]/60 mb-1">
           <div className="flex items-center gap-1.5">
             <span className="text-[#007acc]">📁</span>
-            <span>PROYECTO IKEALANG</span>
+            <span>ESPACIO DE TRABAJO</span>
           </div>
           <div className="flex items-center gap-1">
             <button
-              onClick={() => setCreationMode({ type: 'file', parentId: null })}
-              className="p-0.5 hover:bg-[#333333] text-[#aaaaaa] hover:text-white rounded"
-              title="Crear archivo en la raíz"
+              onClick={onImportRealFile}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-[#333333] hover:bg-[#444444] text-[#cccccc] flex items-center gap-1"
+              title="Cargar archivo .ikea de tu disco"
             >
-              <FilePlus size={13} />
+              <Upload size={10} />
+              <span>Importar</span>
             </button>
             <button
-              onClick={() => setCreationMode({ type: 'directory', parentId: null })}
-              className="p-0.5 hover:bg-[#333333] text-[#aaaaaa] hover:text-white rounded"
-              title="Crear carpeta en la raíz"
+              onClick={onExportRealFile}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-[#007acc] hover:bg-[#0062a3] text-white flex items-center gap-1"
+              title="Guardar archivo .ikea en tu disco"
             >
-              <FolderPlus size={13} />
+              <Download size={10} />
+              <span>Guardar</span>
             </button>
           </div>
         </div>
+
+        {/* Drag and Drop notice */}
+        {isDragOver && (
+          <div className="p-3 my-2 border-2 border-dashed border-[#007acc] rounded-lg text-center text-[#007acc] bg-[#007acc]/10 font-mono text-[11px]">
+            Suelta el archivo .ikea para importarlo directamente
+          </div>
+        )}
 
         {/* Tree Content */}
         {renderTreeLevel(null)}
@@ -318,25 +405,20 @@ export const SidebarExplorer: React.FC<SidebarExplorerProps> = ({
                   <span>HERRAMIENTAS ({ast.herramientas.length})</span>
                 </div>
 
-                {/* Caja */}
+                {/* Caja (Variables) */}
                 <div className="flex items-center gap-1.5 py-0.5">
-                  <Box size={12} className="text-[#d7ba7d]" />
+                  <Box size={12} className="text-[#dcdcaa]" />
                   <span>CAJA ({ast.caja.length} piezas)</span>
                 </div>
 
                 {/* Pasos */}
-                <div className="pl-3 space-y-0.5 text-[#ce9178]">
-                  {ast.montaje.map((paso) => (
-                    <div key={paso.stepNumber} className="truncate py-0.5">
-                      PASO {paso.stepNumber}: "{paso.description}"
+                <div className="flex flex-col gap-1 py-0.5 pl-2 border-l border-[#333333]">
+                  {ast.montaje.map((p) => (
+                    <div key={p.stepNumber} className="flex items-center gap-1 text-[#ce9178] truncate">
+                      <CheckCircle size={10} className="text-emerald-500 shrink-0" />
+                      <span className="truncate">PASO {p.stepNumber}: {p.description}</span>
                     </div>
                   ))}
-                </div>
-
-                {/* Terminado */}
-                <div className="flex items-center gap-1.5 py-0.5 text-emerald-400">
-                  <CheckCircle size={12} />
-                  <span>TERMINADO</span>
                 </div>
               </div>
             )}
