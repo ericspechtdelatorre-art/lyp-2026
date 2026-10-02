@@ -5,6 +5,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { buildFurnitureModel, FurnitureAssemblyMesh } from './furnitureModels.ts';
+import { FurnitureModelId } from '../core/types.ts';
 import {
   Box,
   Eye,
@@ -18,7 +19,7 @@ import {
 interface AssemblyViewport3dProps {
   currentStep: number;
   totalSteps: number;
-  modelId?: 'lack' | 'kallax' | 'alex' | 'pax' | 'chair' | 'generic';
+  modelId?: FurnitureModelId;
   stepDescription?: string;
 }
 

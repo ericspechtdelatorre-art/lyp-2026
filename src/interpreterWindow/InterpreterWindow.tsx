@@ -4,7 +4,7 @@
 
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom';
-import { ExecutionState, ProgramNode } from '../core/types.ts';
+import { ExecutionState, ProgramNode, FurnitureModelId, detectFurnitureModel } from '../core/types.ts';
 import { AssemblyViewport3d } from '../inspector3d/AssemblyViewport3d.tsx';
 import { MemoryInspector } from '../components/MemoryInspector.tsx';
 import { DiagnosticsConsole } from '../components/DiagnosticsConsole.tsx';
@@ -28,7 +28,7 @@ interface InterpreterWindowProps {
   onReset: () => void;
   onFormat: () => void;
   hasErrors: boolean;
-  modelId: 'lack' | 'kallax' | 'alex' | 'pax' | 'chair' | 'generic';
+  modelId?: FurnitureModelId;
   ast: ProgramNode | null;
   onClearLogs: () => void;
 }
@@ -48,6 +48,8 @@ export const InterpreterWindow: React.FC<InterpreterWindowProps> = ({
 }) => {
   const [isPopout, setIsPopout] = useState(false);
   const [popoutWindow, setPopoutWindow] = useState<Window | null>(null);
+
+  const effectiveModelId = detectFurnitureModel(ast?.mueble) || modelId || 'generic';
 
   // Open separate browser window
   const handleOpenBrowserWindow = () => {
@@ -169,7 +171,12 @@ export const InterpreterWindow: React.FC<InterpreterWindowProps> = ({
         {/* Left 55%: 3D Blueprint Assembly Viewport */}
         <div className="flex-1 h-full p-2 bg-[#181818] border-r border-[#3c3c3c] flex flex-col">
           <div className="text-[11px] font-mono font-bold text-[#858585] mb-1 px-1 flex items-center justify-between">
-            <span>PLANO ISOMÉTRICO 3D EN TIEMPO REAL</span>
+            <span className="flex items-center gap-2">
+              <span>PLANO ISOMÉTRICO 3D</span>
+              <span className="text-[#007acc] px-1.5 py-0.2 rounded bg-[#007acc]/10 border border-[#007acc]/30 uppercase text-[10px]">
+                {effectiveModelId}
+              </span>
+            </span>
             <span className="text-[#007acc]">
               PASO {executionState.currentStepIndex}/{executionState.totalSteps || ast?.montaje.length || 3}
             </span>
@@ -178,7 +185,7 @@ export const InterpreterWindow: React.FC<InterpreterWindowProps> = ({
             <AssemblyViewport3d
               currentStep={executionState.currentStepIndex}
               totalSteps={executionState.totalSteps || ast?.montaje.length || 3}
-              modelId={modelId}
+              modelId={effectiveModelId}
               stepDescription={ast?.montaje[executionState.currentStepIndex - 1]?.description}
             />
           </div>

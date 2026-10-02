@@ -14,7 +14,7 @@ export interface FSItem {
   isReadOnly?: boolean;
 }
 
-const STORAGE_KEY = 'ikealang_virtual_fs_v2';
+const STORAGE_KEY = 'ikealang_virtual_fs_v3';
 
 export function createInitialFileSystem(): FSItem[] {
   const items: FSItem[] = [];

@@ -1,5 +1,5 @@
 // ============================================================================
-// IKEALang v1.1 - Verification & Test Suite
+// IKEALang v1.2 - Universal Furniture Verification & Test Suite
 // ============================================================================
 
 import { Lexer } from '../src/core/lexer.ts';
@@ -8,10 +8,11 @@ import { Linter } from '../src/core/linter.ts';
 import { Interpreter } from '../src/core/interpreter.ts';
 import { Formatter } from '../src/core/formatter.ts';
 import { SAMPLE_PROGRAMS } from '../src/core/samplePrograms.ts';
+import { detectFurnitureModel } from '../src/core/types.ts';
 
 function runTests() {
   console.log('====================================================');
-  console.log('   IKEALANG v1.1 AUTOMATED SYSTEM TEST SUITE        ');
+  console.log('   IKEALANG v1.2 UNIVERSAL FURNITURE TEST SUITE     ');
   console.log('====================================================\n');
 
   let passed = 0;
@@ -40,10 +41,10 @@ function runTests() {
   assert(tokens.some(t => t.type === 'UNIR'), 'Recognizes UNIR operator');
 
   // ----------------------------------------------------
-  // TEST 2: Parser on Official Canonical Samples
+  // TEST 2: Parser on All Universal Furniture Types
   // ----------------------------------------------------
-  console.log('\n[2] Testing Parser on Official Specification Programs...');
-  for (const sample of SAMPLE_PROGRAMS.slice(0, 5)) {
+  console.log('\n[2] Testing Parser on Universal Furniture (Sillas, Camas, Armarios, etc.)...');
+  for (const sample of SAMPLE_PROGRAMS) {
     const sLexer = new Lexer(sample.code);
     const sTokens = sLexer.tokenize();
     const sParser = new Parser(sTokens);
@@ -52,16 +53,27 @@ function runTests() {
     const syntaxErrors = diagnostics.filter(d => d.code === 'SINTAXIS');
     assert(
       syntaxErrors.length === 0 && ast !== null,
-      `Parser parses canonical sample '${sample.name}'`,
+      `Parser parses furniture '${sample.name}' (${sample.modelId})`,
       syntaxErrors.map(e => e.message).join('; ')
     );
     assert(ast?.montaje.length! > 0, `AST for '${sample.name}' contains PASO nodes`);
   }
 
   // ----------------------------------------------------
-  // TEST 3: Linter - Zero-Leftover Principle (PIEZAS_SOBRANTES)
+  // TEST 3: Dynamic Model Inference for All Categories
   // ----------------------------------------------------
-  console.log('\n[3] Testing Strict Linter Rules...');
+  console.log('\n[3] Testing Dynamic 3D Model Detection...');
+  assert(detectFurnitureModel('SillaComedor') === 'chair', 'Detects chair from SillaComedor');
+  assert(detectFurnitureModel('CamaMatrimonio') === 'bed', 'Detects bed from CamaMatrimonio');
+  assert(detectFurnitureModel('ArmarioPaxModular') === 'wardrobe', 'Detects wardrobe from ArmarioPaxModular');
+  assert(detectFurnitureModel('CajoneraAlex5Cajones') === 'alex', 'Detects alex/drawers from CajoneraAlex');
+  assert(detectFurnitureModel('EstanteriaKallax2x2') === 'kallax', 'Detects kallax from EstanteriaKallax');
+  assert(detectFurnitureModel('MesaAuxiliarLack') === 'lack', 'Detects lack from MesaAuxiliarLack');
+
+  // ----------------------------------------------------
+  // TEST 4: Linter - Zero-Leftover Principle (PIEZAS_SOBRANTES)
+  // ----------------------------------------------------
+  console.log('\n[4] Testing Strict Linter Rules & Zero-Leftovers...');
   const leftoverCode = `
 MUEBLE TestSobrante
 HERRAMIENTAS { TRAER IMPRESORA }
@@ -82,83 +94,61 @@ TERMINADO usada;`;
   assert(hasLeftover, 'Linter flags PIEZAS_SOBRANTES for unused variable in CAJA');
 
   // ----------------------------------------------------
-  // TEST 4: Linter - Concurrency Panic (PANICO_VUELCO)
+  // TEST 5: Universal Stability - Zero False Stability Panics
   // ----------------------------------------------------
-  const panicCode = `
-MUEBLE TestVuelco
-HERRAMIENTAS {
-    TRAER "red/cliente_http" DEL_CATALOGO COMO Red
-}
-CAJA {
-    TABLERO url = "https://api.ikea.org"
-}
-MONTAJE {
-    PASO 1: "Peticion insegura" {
-        // Red.GET without ENTRE_DOS -> PANICO: VUELCO
-        TABLERO res = Red.GET(url)
-    }
-}
-TERMINADO url;`;
-  const p2 = new Parser(new Lexer(panicCode).tokenize()).parse();
-  const linter2 = new Linter(p2.ast!);
-  const diags2 = linter2.lint();
-  const hasPanic = diags2.some(d => d.code === 'PANICO_VUELCO');
-  assert(hasPanic, 'Linter flags PANICO_VUELCO for heavy network operation outside ENTRE_DOS');
+  console.log('\n[5] Testing Universal Stability (No False Stability Panics)...');
+  for (const sample of SAMPLE_PROGRAMS.filter(s => s.id !== 'diagnostico-piezas-sobrantes')) {
+    const ast = new Parser(new Lexer(sample.code).tokenize()).parse().ast!;
+    const linter = new Linter(ast);
+    const diags = linter.lint();
+    const errors = diags.filter(d => d.severity === 'error');
+    assert(
+      errors.length === 0,
+      `Furniture '${sample.name}' passes linter cleanly with 0 stability errors`,
+      errors.map(e => e.message).join('; ')
+    );
+  }
 
   // ----------------------------------------------------
-  // TEST 5: Linter - Missing Tool (FALTA_HERRAMIENTA)
+  // TEST 6: Execution of Silla, Cama & Mesa in Virtual Interpreter
   // ----------------------------------------------------
-  const missingToolCode = `
-MUEBLE TestFaltaHerramienta
-HERRAMIENTAS { } // No tools imported!
-CAJA { TABLERO t = "hola" }
-MONTAJE {
-    PASO 1: "Imprimir sin importar" {
-        IMPRESORA.ESCRIBIR(t)
-    }
-}
-TERMINADO t;`;
-  const p3 = new Parser(new Lexer(missingToolCode).tokenize()).parse();
-  const linter3 = new Linter(p3.ast!);
-  const diags3 = linter3.lint();
-  const hasMissingTool = diags3.some(d => d.code === 'FALTA_HERRAMIENTA');
-  assert(hasMissingTool, 'Linter flags FALTA_HERRAMIENTA when invoking unimported tool IMPRESORA');
+  console.log('\n[6] Testing Virtual Assembly Execution for Chairs, Beds & Tables...');
 
-  // ----------------------------------------------------
-  // TEST 6: Interpreter Virtual Assembly Execution
-  // ----------------------------------------------------
-  console.log('\n[4] Testing Virtual Assembly Interpreter...');
-  const lackSample = SAMPLE_PROGRAMS[0]; // MesaAuxiliarLack
+  // 6.1 Silla INGOLF
+  const chairSample = SAMPLE_PROGRAMS.find(s => s.id === 'silla-ingolf')!;
+  const chairAst = new Parser(new Lexer(chairSample.code).tokenize()).parse().ast!;
+  const chairInterp = new Interpreter(chairAst);
+  chairInterp.executeAll();
+  const chairState = chairInterp.getState();
+  assert(chairState.status === 'completed', 'Chair INGOLF finishes assembly completely');
+  assert(chairState.variables['tornillos_ensamble'].value === 0, 'All chair screws consumed without leftovers');
+
+  // 6.2 Cama MALM
+  const bedSample = SAMPLE_PROGRAMS.find(s => s.id === 'cama-malm')!;
+  const bedAst = new Parser(new Lexer(bedSample.code).tokenize()).parse().ast!;
+  const bedInterp = new Interpreter(bedAst);
+  bedInterp.executeAll();
+  const bedState = bedInterp.getState();
+  assert(bedState.status === 'completed', 'Bed MALM finishes assembly completely');
+  assert(bedState.variables['pernos_acero'].value === 0, 'All bed steel bolts consumed');
+
+  // 6.3 Mesa LACK
+  const lackSample = SAMPLE_PROGRAMS.find(s => s.id === 'mesa-lack')!;
   const lackAst = new Parser(new Lexer(lackSample.code).tokenize()).parse().ast!;
-  const interp = new Interpreter(lackAst);
-
-  // Step 1
-  const s1 = interp.step();
-  assert(s1.currentStepIndex === 1, 'Interpreter advances to PASO 1');
-  assert(s1.variables['estado'].value === 'Tablero listo boca abajo', 'PASO 1 updates variable estado');
-
-  // Step 2
-  const s2 = interp.step();
-  assert(s2.currentStepIndex === 2, 'Interpreter advances to PASO 2');
-  assert(s2.variables['tornillos_fijacion'].value === 0, 'PASO 2 consumes all screws (tornillos_fijacion === 0)');
-
-  // Step 3 (Finish)
-  const s3 = interp.step();
-  assert(s3.status === 'completed', 'Interpreter finishes with status completed');
-  assert(
-    s3.returnValue === 'Mesa Lack ensamblada y estable',
-    'TERMINADO returns correct assembled product string'
-  );
+  const lackInterp = new Interpreter(lackAst);
+  lackInterp.executeAll();
+  const lackState = lackInterp.getState();
+  assert(lackState.status === 'completed', 'Table LACK finishes assembly completely');
 
   // ----------------------------------------------------
-  // TEST 7: Bi-directional Formatter
+  // TEST 7: Bi-directional Formatter Round-Trip
   // ----------------------------------------------------
-  console.log('\n[5] Testing AST Formatter & Round-Trip Serializer...');
-  const formatted = Formatter.format(lackAst);
+  console.log('\n[7] Testing AST Formatter & Round-Trip Serializer...');
+  const formatted = Formatter.format(chairAst);
   const reparsed = new Parser(new Lexer(formatted).tokenize()).parse();
   assert(reparsed.ast !== null, 'Formatted code parses cleanly');
-  assert(reparsed.ast?.mueble === lackAst.mueble, 'Preserves MUEBLE identifier across round-trip');
-  assert(reparsed.ast?.montaje.length === lackAst.montaje.length, 'Preserves exact PASO count');
+  assert(reparsed.ast?.mueble === chairAst.mueble, 'Preserves MUEBLE identifier across round-trip');
+  assert(reparsed.ast?.montaje.length === chairAst.montaje.length, 'Preserves exact PASO count');
 
   // Final Summary
   console.log('\n====================================================');

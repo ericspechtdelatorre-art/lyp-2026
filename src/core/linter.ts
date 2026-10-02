@@ -76,17 +76,17 @@ export class Linter {
               });
             }
 
-            // Check concurrency: heavy operations (network, http, heavy file read) without ENTRE_DOS
+            // Concurrency suggestion: heavy operations (network, http, heavy file read) can optionally use ENTRE_DOS for parallel speedup
             const isHeavy = /GET|POST|DESCARGAR|PETICION|LEER_GRANDE|SINCRONIZAR/i.test(expr.method);
             if (isHeavy && !insideEntreDos) {
               this.diagnostics.push({
-                id: `panic-vuelco-${expr.loc.line}`,
-                code: 'PANICO_VUELCO',
-                message: `PANICO: VUELCO: La operación pesada '${obj}.${expr.method}' debe ejecutarse dentro de un bloque 'ENTRE_DOS { ... }' para evitar desestabilización.`,
-                severity: 'error',
+                id: `info-entredos-${expr.loc.line}`,
+                code: 'INFO',
+                message: `SUGERENCIA CONCURRENCIA: La operación '${obj}.${expr.method}' puede beneficiarse de un bloque 'ENTRE_DOS { ... }' para acelerar el ensamblaje en paralelo.`,
+                severity: 'info',
                 line: expr.loc.line,
                 column: expr.loc.column,
-                mascotHint: '¡El mueble puede volcar! Dos personas deben sujetarlo: envuelve esta llamada pesada en ENTRE_DOS { ... }.',
+                mascotHint: 'Consejo de montaje: dos personas montan más rápido. Puedes envolver esta llamada en ENTRE_DOS { ... } si deseas paralelizarla.',
                 quickFixSuggestion: `Envolver '${obj}.${expr.method}(...)' en un bloque ENTRE_DOS { ... }`,
               });
             }

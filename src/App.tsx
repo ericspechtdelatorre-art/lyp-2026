@@ -14,7 +14,7 @@ import {
   saveFileSystem,
   createInitialFileSystem,
 } from './core/fileSystem.ts';
-import { ProgramNode, Diagnostic, ExecutionState } from './core/types.ts';
+import { ProgramNode, Diagnostic, ExecutionState, detectFurnitureModel } from './core/types.ts';
 
 // VS Code Components
 import { ActivityBar } from './vscode/ActivityBar.tsx';
@@ -474,7 +474,7 @@ export const App: React.FC = () => {
         onReset={handleReset}
         onFormat={handleFormat}
         hasErrors={hasFatalErrors}
-        modelId="generic"
+        modelId={detectFurnitureModel(ast?.mueble, code)}
         ast={ast}
         onClearLogs={() => {
           if (interpreterRef.current) {

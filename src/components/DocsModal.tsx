@@ -77,18 +77,21 @@ export const DocsModal: React.FC<DocsModalProps> = ({ isOpen, onClose }) => {
 
           {/* Section 3 */}
           <div>
-            <h3 className="font-extrabold text-sm text-red-600 dark:text-red-400 uppercase mb-2 flex items-center gap-1.5">
-              <ShieldAlert size={15} /> 3. Principio Zero-Leftovers & Reglas del Linter
+            <h3 className="font-extrabold text-sm text-[#0058a3] dark:text-[#ffdb00] uppercase mb-2 flex items-center gap-1.5">
+              <ShieldAlert size={15} /> 3. Arquitectura Universal & Principio Zero-Leftovers
             </h3>
             <ul className="space-y-1.5 leading-relaxed">
               <li>
-                <strong className="text-red-700 dark:text-red-400">ERROR 101: PIEZAS_SOBRANTES:</strong> Si declaras una pieza en la <code className="font-mono">CAJA</code> o importas una herramienta y nunca la usas en ningún <code className="font-mono">PASO</code>, la compilación fallará. ¡En IKEA no se dejan tornillos olvidados en el suelo!
+                <strong className="text-emerald-700 dark:text-emerald-400">ESTABILIDAD UNIVERSAL GARANTIZADA:</strong> En IkeaLang v1.2 puedes crear cualquier mueble sin problemas de estabilidad: sillas, mesas, armarios, cajoneras, estanterías, camas o estructuras modulares complejas quedan estructuralmente firmes y seguras.
               </li>
               <li>
-                <strong className="text-red-700 dark:text-red-400">ERROR 102: TORNILLO_PASADO:</strong> Conflicto de tipos o sobrepaso de rosca.
+                <strong className="text-red-700 dark:text-red-400">ERROR 101: PIEZAS_SOBRANTES:</strong> Si declaras una pieza en la <code className="font-mono">CAJA</code> o importas una herramienta y nunca la usas en ningún <code className="font-mono">PASO</code>, la compilación fallará. ¡En IKEA no se dejan tornillos ni tableros olvidados en el suelo!
               </li>
               <li>
-                <strong className="text-red-700 dark:text-red-400">PANICO: VUELCO:</strong> Llamar a funciones de red, disco o tareas pesadas sin envolverlas en un bloque <code className="font-mono font-bold">ENTRE_DOS &#123; ... &#125;</code> (trabajo en equipo para evitar que el mueble caiga).
+                <strong className="text-red-700 dark:text-red-400">ERROR 102: TORNILLO_PASADO:</strong> Conflicto de tipos o sobrepaso de rosca (e.g. meter texto en un tornillo numérico).
+              </li>
+              <li>
+                <strong className="text-sky-700 dark:text-sky-400">CONCURRENCIA (ENTRE_DOS):</strong> Bloque de trabajo colaborativo en equipo para paralelizar pasos y acelerar tareas simultáneas.
               </li>
             </ul>
           </div>

@@ -236,3 +236,30 @@ export interface ExecutionState {
   error?: string;
   activeWorkerLanes: number;
 }
+
+// ---------------- Furniture Architecture & 3D Models ----------------
+
+export type FurnitureModelId = 'lack' | 'kallax' | 'alex' | 'pax' | 'wardrobe' | 'chair' | 'bed' | 'generic';
+
+export function detectFurnitureModel(muebleName?: string, code?: string): FurnitureModelId {
+  const text = ((muebleName || '') + ' ' + (code || '')).toLowerCase();
+  if (text.includes('silla') || text.includes('chair') || text.includes('asiento') || text.includes('ingolf')) {
+    return 'chair';
+  }
+  if (text.includes('cama') || text.includes('bed') || text.includes('somier') || text.includes('malm')) {
+    return 'bed';
+  }
+  if (text.includes('armario') || text.includes('wardrobe') || text.includes('pax') || text.includes('ropero') || text.includes('closet')) {
+    return 'wardrobe';
+  }
+  if (text.includes('cajon') || text.includes('alex') || text.includes('gaveta') || text.includes('drawer')) {
+    return 'alex';
+  }
+  if (text.includes('estanteria') || text.includes('kallax') || text.includes('billy') || text.includes('shelf') || text.includes('balda')) {
+    return 'kallax';
+  }
+  if (text.includes('mesa') || text.includes('lack') || text.includes('table') || text.includes('escritorio')) {
+    return 'lack';
+  }
+  return 'generic';
+}
