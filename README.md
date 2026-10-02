@@ -1,5 +1,8 @@
 # 🪑 IKEALang IDE | KALLAX Studio v1.1
 
+**Lenguajes y Paradigmas (LyP 2026)**  
+* **Autores:** Marcos García Guerra, Jean Carlo Quezada Calva, Eric Specht De la Torre
+
 > **El entorno de desarrollo integrado (IDE) donde la lógica de programación se mapea directamente a los principios de ensamblaje de muebles en paquete plano (*flat-pack*).**
 
 ---
@@ -10,7 +13,7 @@ El IDE implementa una arquitectura reactiva con un **Árbol de Sintaxis Abstract
 
 ```mermaid
 flowchart LR
-    A["Modo 1: Mesa de Taller\n(Editor Monaco + Regla)"] <--> AST["Unified AST\n(IkeaLang v1.1)"]
+    A["Modo 1: Mesa de Taller\n(Editor VS Code + Regla)"] <--> AST["Unified AST\n(IkeaLang v1.1)"]
     B["Modo 2: Caja de Montaje\n(Bloques Físicos)"] <--> AST
     C["Modo 3: Escáner de Despiece\n(Visión CV & AR)"] --> AST
     AST --> D["3D Assembly Inspector\n(Three.js Blueprint)"]
@@ -41,7 +44,7 @@ flowchart LR
     * 🔄 **`REPETIR`**: Trinquete / atornillador eléctrico con cuentarrevoluciones digital.
     * 📐 **`SI / SINO`**: Escuadra metálica de 90 grados para validación de equilibrio.
     * 👥 **`ENTRE_DOS`**: Sargento paralelo de doble husillo con empuñaduras de seguridad antivuelco.
-* **Sincronización Bidireccional en Tiempo Real:** Modificar o encajar bloques en la lona genera y formatea código `.ikea` instantáneamente; escribir en el editor Monaco regenera la disposición de bloques visuales.
+* **Sincronización Bidireccional en Tiempo Real:** Modificar o encajar bloques en la lona genera y formatea código `.ikea` instantáneamente; escribir en el editor regenera la disposición de bloques visuales.
 
 ---
 
@@ -127,7 +130,7 @@ npm run dev
 Abre en tu navegador: `http://localhost:3000/` o `http://127.0.0.1:3000/`
 
 ### 3.2 Ejecutar la Suite de Pruebas Automatizadas
-Verifica los 26 tests unitarios del Lexer, Parser, Linter, Interprete y Formateador:
+Verifica los 26 tests unitarios del Lexer, Parser, Linter, Intérprete y Formateador:
 ```bash
 npm test
 ```
@@ -141,8 +144,9 @@ npm run build
 
 ## 🛠️ Tecnologías Empleadas
 * **Frontend:** React 19 + TypeScript + Vite + TailwindCSS.
-* **Editor de Código:** Monaco Editor con gramática, tokenizador Monarch personalizado y temas a medida.
+* **Editor de Código:** Editor nativo estilo VS Code con resaltador léxico, autocompletado y regla graduada.
 * **Renderizado 3D:** Three.js con modelos paramétricos procedurales de mobiliario.
 * **Visión por Computador:** Pipeline de segmentación espacial y deconstrucción a AST con soporte de cámara WebRTC.
+* **Ventana Externa del Intérprete:** Ventana pop-out independiente desacoplada para salida de depuración y consola.
 * **Efectos de Sonido:** Síntesis sonora pura vía Web Audio API (chasquidos de madera, trinquetes y acordes de éxito).
 * **Mascota Oficial:** Gubbe, asistente interactivo SVG del manual de montaje con feedback en tiempo real.
