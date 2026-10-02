@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* Custom Wood and Paper Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #ede6d7;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: #101c13;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c7b99e;
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #25402b;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #0058a3;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #ffdb00;
+}

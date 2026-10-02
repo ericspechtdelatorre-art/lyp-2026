@@ -1,0 +1,108 @@
+/* ========================================================================== */
+/* Folding Ruler Gutter & Wooden Dowel Breakpoints & Mascot Diagnostics       */
+/* ========================================================================== */
+
+/* Ensure text selection and cursor operations always work smoothly */
+.monaco-editor,
+.monaco-editor .inputarea,
+.monaco-editor .view-lines,
+.monaco-editor .view-line {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+/* Wooden Carpenter Folding Ruler Line Numbers */
+.monaco-editor .margin {
+  background-color: #eee7d5 !important;
+  box-shadow: inset -1px 0 0 #bfa985, inset -2px 0 4px rgba(0, 0, 0, 0.04) !important;
+}
+
+.dark .monaco-editor .margin {
+  background-color: #0d1710 !important;
+  box-shadow: inset -1px 0 0 #28442d, inset -2px 0 4px rgba(0, 0, 0, 0.25) !important;
+}
+
+/* Line numbers styled as mm ruler marks without disrupting coordinate layout */
+.monaco-editor .line-numbers {
+  font-family: 'Fira Code', 'Space Grotesk', monospace !important;
+  font-size: 11px !important;
+  color: #8c7653 !important;
+  position: relative;
+}
+
+.monaco-editor .line-numbers.active-line-number {
+  color: #0058a3 !important;
+  font-weight: 700 !important;
+}
+
+.dark .monaco-editor .line-numbers {
+  color: #436e4b !important;
+}
+
+.dark .monaco-editor .line-numbers.active-line-number {
+  color: #ffdb00 !important;
+  font-weight: 700 !important;
+}
+
+/* Ruler tick mark lines every line */
+.monaco-editor .line-numbers::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: 4px;
+  height: 1px;
+  background-color: #bfa985;
+}
+
+.dark .monaco-editor .line-numbers::after {
+  background-color: #2e5335;
+}
+
+/* Wooden Dowel Breakpoints (Clavija de Madera) */
+.ikea-breakpoint-dowel {
+  background: radial-gradient(circle at 35% 35%, #f7dfba 0%, #caa472 65%, #8b683b 100%) !important;
+  border: 1px solid #6b4e27 !important;
+  border-radius: 50% !important;
+  width: 12px !important;
+  height: 12px !important;
+  margin-left: 4px !important;
+  margin-top: 3px !important;
+  box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.35), inset -1px -1px 2px rgba(0, 0, 0, 0.4) !important;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.ikea-breakpoint-dowel:hover {
+  transform: scale(1.2);
+}
+
+/* Mascot Scratching Head Gutter Marker (Gubbe - PIEZAS_SOBRANTES) */
+.ikea-mascot-gutter-marker {
+  width: 16px !important;
+  height: 16px !important;
+  margin-left: 2px !important;
+  margin-top: 2px !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23ffdb00' stroke='%230058a3' stroke-width='2'/%3E%3Ccircle cx='12' cy='13' r='2' fill='%230058a3'/%3E%3Ccircle cx='20' cy='13' r='2' fill='%230058a3'/%3E%3Cpath d='M11 22 Q16 18 21 22' fill='none' stroke='%230058a3' stroke-width='2' stroke-linecap='round'/%3E%3Cpath d='M23 8 Q27 10 25 15' fill='none' stroke='%23d97706' stroke-width='2.5' stroke-linecap='round'/%3E%3Ctext x='25' y='8' font-size='10' font-family='Arial' font-weight='bold' fill='%23d97706'%3E?%3C/text%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  cursor: pointer;
+  animation: bounce 1.8s infinite ease-in-out;
+}
+
+/* Panic Vuelco Gutter Marker */
+.ikea-panic-gutter-marker {
+  width: 16px !important;
+  height: 16px !important;
+  margin-left: 2px !important;
+  margin-top: 2px !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpolygon points='16,2 30,28 2,28' fill='%23dc2626' stroke='%237f1d1d' stroke-width='2'/%3E%3Crect x='14.5' y='10' width='3' height='9' fill='white' rx='1'/%3E%3Ccircle cx='16' cy='23' r='2' fill='white'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
