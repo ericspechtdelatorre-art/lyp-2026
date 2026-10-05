@@ -1,11 +1,12 @@
 // ============================================================================
-// IKEALang v1.2 - VS Code Native Code Editor (Error Lens removed; Clean editing)
-// Diagnostics are exclusively displayed in the bottom "Problemas" panel
+// IKEALang — Monaco Editor (VS Code engine) with breakpoints & diagnostics
 // ============================================================================
 
-import React, { useRef, useMemo } from 'react';
-import { highlightIkeaLang } from './ikeaHighlighter.ts';
+import React, { useRef, useEffect, useCallback } from 'react';
+import Editor, { OnMount, OnChange } from '@monaco-editor/react';
+import type { editor as MonacoEditor } from 'monaco-editor';
 import { Diagnostic } from '../core/types.ts';
+import { registerIkeaLang, LANGUAGE_ID } from './monacoIkeaLang.ts';
 import './FoldingRulerGutter.css';
 
 interface VSCodeEditorProps {
@@ -19,240 +20,182 @@ interface VSCodeEditorProps {
   theme?: 'dark' | 'light';
 }
 
+const severityToMonaco = (severity: Diagnostic['severity']) => {
+  // Monaco MarkerSeverity: Error=8, Warning=4, Info=2, Hint=1
+  if (severity === 'error') return 8;
+  if (severity === 'warning') return 4;
+  return 2;
+};
+
 export const VSCodeEditor: React.FC<VSCodeEditorProps> = ({
   code,
   onChange,
+  diagnostics = [],
   breakpoints,
   onBreakpointToggle,
   onCursorChange,
   theme = 'dark',
 }) => {
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const preRef = useRef<HTMLPreElement | null>(null);
-  const gutterRef = useRef<HTMLDivElement | null>(null);
+  const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
+  const decorationsRef = useRef<string[]>([]);
+  const breakpointsRef = useRef(breakpoints);
+  breakpointsRef.current = breakpoints;
 
-  const lines = useMemo(() => code.split('\n'), [code]);
-  const highlightedCode = useMemo(() => highlightIkeaLang(code), [code]);
+  const applyBreakpointDecorations = useCallback(() => {
+    const ed = editorRef.current;
+    if (!ed) return;
+    const next = breakpointsRef.current.map((line) => ({
+      range: {
+        startLineNumber: line,
+        startColumn: 1,
+        endLineNumber: line,
+        endColumn: 1,
+      },
+      options: {
+        isWholeLine: false,
+        glyphMarginClassName: 'ikea-breakpoint-glyph',
+        glyphMarginHoverMessage: { value: 'Clavija de Montaje (Breakpoint)' },
+      },
+    }));
+    decorationsRef.current = ed.deltaDecorations(decorationsRef.current, next as MonacoEditor.IModelDeltaDecoration[]);
+  }, []);
 
-  // Synchronize scroll between textarea, syntax overlay and gutter
-  const handleScroll = () => {
-    if (!textareaRef.current) return;
-    const { scrollTop, scrollLeft } = textareaRef.current;
-    if (preRef.current) {
-      preRef.current.scrollTop = scrollTop;
-      preRef.current.scrollLeft = scrollLeft;
-    }
-    if (gutterRef.current) {
-      gutterRef.current.scrollTop = scrollTop;
-    }
-  };
+  const applyDiagnostics = useCallback(() => {
+    const monaco = monacoRef.current;
+    const ed = editorRef.current;
+    if (!monaco || !ed) return;
+    const model = ed.getModel();
+    if (!model) return;
 
-  // Track cursor position
-  const updateCursorPosition = () => {
-    if (!textareaRef.current) return;
-    const pos = textareaRef.current.selectionStart || 0;
-    const textBefore = code.substring(0, pos);
-    const lineList = textBefore.split('\n');
-    const currentLine = lineList.length;
-    const currentCol = lineList[lineList.length - 1].length + 1;
-    if (onCursorChange) {
-      onCursorChange(currentLine, currentCol);
-    }
-  };
+    const markers = diagnostics.map((d) => ({
+      startLineNumber: d.line || 1,
+      startColumn: d.column || 1,
+      endLineNumber: d.line || 1,
+      endColumn: (d.column || 1) + 1,
+      message: `[${d.code}] ${d.message}`,
+      severity: severityToMonaco(d.severity),
+    }));
 
-  // Keyboard handlers: Tab, Auto-indent, Auto-closing pairs & Clean Backspace
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
+    monaco.editor.setModelMarkers(model, 'ikealang', markers);
+  }, [diagnostics]);
 
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
+  useEffect(() => {
+    applyBreakpointDecorations();
+  }, [breakpoints, applyBreakpointDecorations]);
 
-    // 1. Tab & Shift+Tab
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      if (e.shiftKey) {
-        const lineStart = code.lastIndexOf('\n', start - 1) + 1;
-        if (code.substring(lineStart, lineStart + 4) === '    ') {
-          const next = code.substring(0, lineStart) + code.substring(lineStart + 4);
-          onChange(next);
-          setTimeout(() => {
-            textarea.selectionStart = textarea.selectionEnd = Math.max(lineStart, start - 4);
-          }, 0);
-        }
-      } else {
-        const next = code.substring(0, start) + '    ' + code.substring(end);
-        onChange(next);
-        setTimeout(() => {
-          textarea.selectionStart = textarea.selectionEnd = start + 4;
-        }, 0);
-      }
-      return;
-    }
+  useEffect(() => {
+    applyDiagnostics();
+  }, [applyDiagnostics]);
 
-    // 2. Enter with auto-indent
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      const lineStart = code.lastIndexOf('\n', start - 1) + 1;
-      const currentLineText = code.substring(lineStart, start);
-      const matchIndent = currentLineText.match(/^(\s*)/);
-      let indent = matchIndent ? matchIndent[1] : '';
+  const handleMount: OnMount = (editor, monaco) => {
+    editorRef.current = editor;
+    monacoRef.current = monaco;
+    registerIkeaLang(monaco);
+    monaco.editor.setTheme(theme === 'dark' ? 'ikealang-dark' : 'ikealang-light');
 
-      const trimmedBefore = currentLineText.trimEnd();
-      const shouldExtraIndent = trimmedBefore.endsWith('{');
-      if (shouldExtraIndent) {
-        indent += '    ';
-      }
-
-      const charAfter = code.charAt(start);
-      if (shouldExtraIndent && charAfter === '}') {
-        const baseIndent = matchIndent ? matchIndent[1] : '';
-        const insertion = '\n' + indent + '\n' + baseIndent;
-        const next = code.substring(0, start) + insertion + code.substring(end);
-        onChange(next);
-        setTimeout(() => {
-          textarea.selectionStart = textarea.selectionEnd = start + 1 + indent.length;
-        }, 0);
-        return;
-      }
-
-      const next = code.substring(0, start) + '\n' + indent + code.substring(end);
-      onChange(next);
-      setTimeout(() => {
-        textarea.selectionStart = textarea.selectionEnd = start + 1 + indent.length;
-      }, 0);
-      return;
-    }
-
-    // 3. Auto-closing brackets and quotes
-    const pairs: Record<string, string> = {
-      '{': '}',
-      '(': ')',
-      '[': ']',
-      '"': '"',
-    };
-
-    if (pairs[e.key] && start === end) {
-      const closeChar = pairs[e.key];
-      const nextChar = code.charAt(start);
-      if (e.key === '"' && nextChar === '"') {
-        e.preventDefault();
-        textarea.selectionStart = textarea.selectionEnd = start + 1;
-        return;
-      }
-      e.preventDefault();
-      const next = code.substring(0, start) + e.key + closeChar + code.substring(end);
-      onChange(next);
-      setTimeout(() => {
-        textarea.selectionStart = textarea.selectionEnd = start + 1;
-      }, 0);
-      return;
-    }
-
-    // 4. Overtype closing characters
-    if ((e.key === '}' || e.key === ')' || e.key === ']') && start === end) {
-      if (code.charAt(start) === e.key) {
-        e.preventDefault();
-        textarea.selectionStart = textarea.selectionEnd = start + 1;
-        return;
-      }
-    }
-
-    // 5. Backspace deleting empty pairs
-    if (e.key === 'Backspace' && start === end && start > 0) {
-      const prevChar = code.charAt(start - 1);
-      const nextChar = code.charAt(start);
+    // Click glyph margin to toggle breakpoints
+    editor.onMouseDown((e) => {
       if (
-        (prevChar === '{' && nextChar === '}') ||
-        (prevChar === '(' && nextChar === ')') ||
-        (prevChar === '[' && nextChar === ']') ||
-        (prevChar === '"' && nextChar === '"')
+        e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN ||
+        e.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS
       ) {
-        e.preventDefault();
-        const next = code.substring(0, start - 1) + code.substring(start + 1);
-        onChange(next);
-        setTimeout(() => {
-          textarea.selectionStart = textarea.selectionEnd = start - 1;
-        }, 0);
-        return;
+        const line = e.target.position?.lineNumber;
+        if (line) onBreakpointToggle(line);
       }
-    }
+    });
+
+    editor.onDidChangeCursorPosition((e) => {
+      onCursorChange?.(e.position.lineNumber, e.position.column);
+    });
+
+    applyBreakpointDecorations();
+    applyDiagnostics();
+    editor.focus();
+  };
+
+  const handleChange: OnChange = (value) => {
+    onChange(value ?? '');
   };
 
   return (
-    <div
-      className={`relative w-full h-full flex overflow-hidden font-mono text-[13px] leading-[22px] ${
-        theme === 'dark' ? 'bg-[#1e1e1e] text-[#d4d4d4]' : 'bg-[#ffffff] text-[#1e1e1e]'
-      }`}
-    >
-      {/* 1. Folding Carpenter Ruler Gutter & Breakpoints */}
-      <div
-        ref={gutterRef}
-        className="w-14 select-none shrink-0 overflow-hidden bg-[#252526] text-[#858585] border-r border-[#333333] z-20 py-2.5 font-mono text-[11px]"
-      >
-        <div className="flex flex-col">
-          {lines.map((_, idx) => {
-            const lineNum = idx + 1;
-            const isBreakpoint = breakpoints.includes(lineNum);
-            const isMmTick = lineNum % 5 === 0;
-
-            return (
-              <div
-                key={idx}
-                onClick={() => onBreakpointToggle(lineNum)}
-                className={`h-[22px] flex items-center justify-between px-1 cursor-pointer group hover:bg-[#333333]/50 ${
-                  isMmTick ? 'ruler-tick-major' : 'ruler-tick-minor'
-                }`}
-              >
-                {/* Breakpoint wooden dowel */}
-                <div className="w-4 h-4 flex items-center justify-center shrink-0">
-                  {isBreakpoint ? (
-                    <div
-                      className="w-2.5 h-2.5 rounded-full bg-[#f59e0b] border border-[#78350f] shadow-sm animate-pulse"
-                      title="Clavija de Montaje (Breakpoint)"
-                    />
-                  ) : (
-                    <div className="w-1.5 h-1.5 rounded-full bg-transparent group-hover:bg-neutral-500/40" />
-                  )}
-                </div>
-
-                {/* Line number with folding ruler mm indicator */}
-                <span className="text-[11px] font-mono text-right w-7">
-                  {lineNum}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* 2. Editor Text Area & Syntax Overlay (No error lens overlays) */}
-      <div className="relative flex-1 h-full overflow-hidden">
-        {/* Syntax Highlighted HTML Background View */}
-        <pre
-          ref={preRef}
-          aria-hidden="true"
-          className="absolute inset-0 p-2.5 m-0 pointer-events-none overflow-hidden font-mono text-[13px] leading-[22px] whitespace-pre tab-4 select-none"
-          dangerouslySetInnerHTML={{ __html: highlightedCode + '\n' }}
-        />
-
-        {/* Native Textarea Foreground - 100% Reliable Typing, Deleting, Selection */}
-        <textarea
-          ref={textareaRef}
-          value={code}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onScroll={handleScroll}
-          onClick={updateCursorPosition}
-          onKeyUp={updateCursorPosition}
-          onSelect={updateCursorPosition}
-          spellCheck={false}
-          autoCapitalize="off"
-          autoComplete="off"
-          autoCorrect="off"
-          className="absolute inset-0 p-2.5 m-0 w-full h-full bg-transparent text-transparent caret-[#569cd6] dark:caret-[#ffdb00] font-mono text-[13px] leading-[22px] whitespace-pre tab-4 outline-none resize-none overflow-auto border-0 select-text z-10 selection:bg-[#264f78]/60 dark:selection:bg-[#0058a3]/50"
-        />
-      </div>
+    <div className="relative w-full h-full overflow-hidden ikea-monaco-host">
+      <style>{`
+        .ikea-monaco-host .monaco-editor .margin-view-overlays .ikea-breakpoint-glyph {
+          background: radial-gradient(circle at center, #f59e0b 55%, #78350f 100%);
+          border-radius: 50%;
+          width: 8px !important;
+          height: 8px !important;
+          margin-left: 4px;
+          margin-top: 4px;
+          box-shadow: 0 0 3px rgba(245, 158, 11, 0.55);
+        }
+        .ikea-monaco-host .monaco-editor .margin-view-overlays .line-numbers {
+          font-size: 10px !important;
+          line-height: 20px !important;
+          letter-spacing: -0.02em;
+        }
+        .ikea-monaco-host .monaco-editor,
+        .ikea-monaco-host .monaco-editor .overflow-guard {
+          border-radius: 0;
+        }
+      `}</style>
+      <Editor
+        height="100%"
+        width="100%"
+        language={LANGUAGE_ID}
+        theme={theme === 'dark' ? 'ikealang-dark' : 'ikealang-light'}
+        value={code}
+        onChange={handleChange}
+        onMount={handleMount}
+        beforeMount={registerIkeaLang}
+        loading={
+          <div className="w-full h-full flex items-center justify-center bg-[#1e1e1e] text-[#858585] font-mono text-sm">
+            Cargando Monaco Editor…
+          </div>
+        }
+        options={{
+          fontFamily: "'Fira Code', 'Cascadia Code', Consolas, 'Courier New', monospace",
+          fontSize: 13,
+          lineHeight: 20,
+          minimap: { enabled: true, scale: 1 },
+          glyphMargin: true,
+          lineNumbers: 'on',
+          lineNumbersMinChars: 2,
+          renderLineHighlight: 'line',
+          scrollBeyondLastLine: false,
+          automaticLayout: true,
+          tabSize: 4,
+          insertSpaces: true,
+          wordWrap: 'off',
+          folding: true,
+          bracketPairColorization: { enabled: true },
+          padding: { top: 8, bottom: 8 },
+          scrollbar: {
+            verticalScrollbarSize: 10,
+            horizontalScrollbarSize: 10,
+          },
+          suggestOnTriggerCharacters: true,
+          quickSuggestions: {
+            other: true,
+            comments: false,
+            strings: false,
+          },
+          suggest: {
+            showKeywords: true,
+            showSnippets: true,
+            showWords: true,
+            preview: true,
+            insertMode: 'replace',
+          },
+          acceptSuggestionOnEnter: 'on',
+          tabCompletion: 'on',
+          wordBasedSuggestions: 'off',
+          snippetSuggestions: 'top',
+          formatOnPaste: false,
+          formatOnType: false,
+        }}
+      />
     </div>
   );
 };

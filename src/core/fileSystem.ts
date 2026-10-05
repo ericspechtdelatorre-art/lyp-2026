@@ -17,12 +17,13 @@ export interface FSItem {
   isRealDisk?: boolean;
 }
 
-const STORAGE_KEY = 'ikealang_virtual_fs_v4';
+// v5: workspace starts with ONLY the "ejemplos" folder (no root loose files)
+const STORAGE_KEY = 'ikealang_virtual_fs_v5';
 
 export function createInitialFileSystem(): FSItem[] {
   const items: FSItem[] = [];
 
-  // Folder: "ejemplos" (Official Universal Furniture Samples)
+  // Only folder at workspace root: "ejemplos"
   const ejemplosFolderId = 'folder-ejemplos';
   items.push({
     id: ejemplosFolderId,
@@ -33,7 +34,7 @@ export function createInitialFileSystem(): FSItem[] {
     isOpen: true,
   });
 
-  // Populate samples
+  // Sample programs live exclusively inside "ejemplos"
   SAMPLE_PROGRAMS.forEach((sample) => {
     const filename = `${sample.name.replace(/[^a-zA-Z0-9]/g, '')}.ikea`;
     items.push({
@@ -55,8 +56,7 @@ export function loadFileSystem(): FSItem[] {
     if (saved) {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // Ensure main.ikea is purged if present in any legacy cache
-        const filtered = parsed.filter(i => i.name !== 'main.ikea');
+        const filtered = parsed.filter((i: FSItem) => i.name !== 'main.ikea');
         if (filtered.length > 0) return filtered;
       }
     }

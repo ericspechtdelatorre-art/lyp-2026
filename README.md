@@ -124,19 +124,30 @@ TERMINADO estado_silla;
 
 ## 🚀 3. Instrucciones de Ejecución y Pruebas
 
-### 3.1 Iniciar el Servidor de Desarrollo
+### 3.1 App de Escritorio (recomendado)
+```bash
+npm run desktop
+```
+Arranca Vite + Electron. El explorador arranca solo con la carpeta `ejemplos`.
+
+Para generar instalador / portable de Windows:
+```bash
+npm run electron:build
+```
+Los artefactos quedan en `release/`.
+
+### 3.2 Modo Navegador (desarrollo web)
 ```bash
 npm run dev
 ```
-Abre en tu navegador: `http://localhost:3000/` o `http://127.0.0.1:3000/`
+Abre: `http://127.0.0.1:3000/`
 
-### 3.2 Ejecutar la Suite de Pruebas Automatizadas
-Verifica los 39 tests unitarios del Lexer, Parser, Linter, Intérprete y Modelos 3D de Mobiliario Universal:
+### 3.3 Suite de Pruebas
 ```bash
 npm test
 ```
 
-### 3.3 Compilar para Producción
+### 3.4 Compilar frontend
 ```bash
 npm run build
 ```
@@ -144,8 +155,9 @@ npm run build
 ---
 
 ## 🛠️ Tecnologías Empleadas
+* **Escritorio:** Electron (ventana nativa Windows).
 * **Frontend:** React 19 + TypeScript + Vite + TailwindCSS.
-* **Editor de Código:** Editor nativo estilo VS Code con resaltador léxico, autocompletado y regla graduada.
+* **Editor de Código:** Monaco Editor (motor de VS Code) con lenguaje IkeaLang, breakpoints y marcadores de diagnóstico.
 * **Renderizado 3D Universal:** Three.js con geometrías procedurales para sillas, camas, armarios, cajoneras, estanterías y mesas.
 * **Visión por Computador:** Pipeline de segmentación espacial y deconstrucción a AST con soporte de cámara WebRTC.
 * **Ventana Externa del Intérprete:** Ventana pop-out independiente desacoplada para salida de depuración y consola.

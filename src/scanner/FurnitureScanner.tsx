@@ -1,361 +1,407 @@
 // ============================================================================
-// IKEALang v1.1 - MODE 3: "Escáner de Despiece" (CV & Reverse Assembly UI)
+// Modo A: "Mueble Ya Montado" — Reverse Engineering & Assembly Twin UI
+// Pipeline: Ingest → Segmentation → Graph → .ikea → 3D Twin
 // ============================================================================
 
-import React, { useState, useRef, useEffect } from 'react';
-import {
-  ComputerVisionDeconstructor,
-  DetectionResult,
-  DetectedPart,
-} from './cvDetector.ts';
+import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import {
   Camera,
   Upload,
-  Layers,
   ArrowRight,
-  Maximize2,
-  Minimize2,
-  RotateCcw,
-  Sparkles,
-  Sliders,
   Check,
-  ChevronRight,
+  Layers,
+  Sparkles,
+  AlertTriangle,
+  Box,
+  GitBranch,
+  Code2,
 } from 'lucide-react';
+import { AssemblyTwinViewport } from './modoA/AssemblyTwinViewport.tsx';
+import { inventoryAtStep, runModoAFromCanvas, runModoAGeneric } from './modoA/pipeline.ts';
+import { ModoAPipelineResult } from './modoA/spatialTypes.ts';
 
 interface FurnitureScannerProps {
   onTransferCode: (code: string) => void;
+  /** Optional: notify IDE of active source line for editor sync */
+  onHighlightLine?: (line: number | null) => void;
 }
 
-export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({ onTransferCode }) => {
-  const [selectedPreset, setSelectedPreset] = useState<'lack' | 'kallax' | 'alex'>('kallax');
+export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
+  onTransferCode,
+  onHighlightLine,
+}) => {
+  const [hasCapture, setHasCapture] = useState(false);
+  const [result, setResult] = useState<ModoAPipelineResult>(() => runModoAGeneric());
+  const [stage, setStage] = useState<1 | 2 | 3 | 4>(4);
+  const [explosion, setExplosion] = useState(0);
+  const [assemblyStep, setAssemblyStep] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [isLiveCamera, setIsLiveCamera] = useState(false);
-  const [detection, setDetection] = useState<DetectionResult>(
-    ComputerVisionDeconstructor.analyzePreset('kallax')
-  );
-  const [explosionAmount, setExplosionAmount] = useState(0); // 0 to 100%
-  const [reverseStepIndex, setReverseStepIndex] = useState(0);
-  const [activeTab, setActiveTab] = useState<'scan' | 'exploded' | 'code'>('scan');
+  const [analyzing, setAnalyzing] = useState(false);
   const [transferred, setTransferred] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
-  // Switch preset
-  const handlePresetChange = (preset: 'lack' | 'kallax' | 'alex') => {
-    setSelectedPreset(preset);
-    setIsLiveCamera(false);
-    const res = ComputerVisionDeconstructor.analyzePreset(preset);
-    setDetection(res);
-    setReverseStepIndex(0);
-    setExplosionAmount(0);
-    setTransferred(false);
-  };
+  const inventory = useMemo(
+    () => inventoryAtStep(result, assemblyStep),
+    [result, assemblyStep]
+  );
 
-  // Start webcam
+  const activeLine = useMemo(() => {
+    const step = result.graph.steps.find((s) => s.stepNumber === assemblyStep);
+    return step?.codeLineStart ?? null;
+  }, [result, assemblyStep]);
+
+  useEffect(() => {
+    onHighlightLine?.(activeLine);
+  }, [activeLine, onHighlightLine]);
+
+  useEffect(() => {
+    return () => {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
+
+  const applyResult = useCallback((next: ModoAPipelineResult, fromCapture = true) => {
+    setResult(next);
+    if (fromCapture) setHasCapture(true);
+    setExplosion(0.85);
+    setAssemblyStep(0);
+    setIsPlaying(false);
+    setStage(4);
+    window.setTimeout(() => setExplosion(0), 900);
+  }, []);
+
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+      });
+      streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        await videoRef.current.play();
         setIsLiveCamera(true);
+        setStage(1);
       }
-    } catch (err) {
-      alert('No se pudo acceder a la cámara del dispositivo. Mostrando preset de prueba.');
+    } catch {
+      alert('No se pudo acceder a la cámara. Usa un preset o sube una imagen.');
+    }
+  };
+
+  const captureAndAnalyze = async () => {
+    setAnalyzing(true);
+    setStage(1);
+    try {
+      const canvas = document.createElement('canvas');
+      if (isLiveCamera && videoRef.current) {
+        canvas.width = videoRef.current.videoWidth || 640;
+        canvas.height = videoRef.current.videoHeight || 480;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(videoRef.current, 0, 0);
+      } else {
+        canvas.width = 640;
+        canvas.height = 480;
+      }
+      // Simulate staged pipeline latency for UX
+      await new Promise((r) => setTimeout(r, 280));
+      setStage(2);
+      await new Promise((r) => setTimeout(r, 220));
+      setStage(3);
+      const next = runModoAFromCanvas(canvas);
+      await new Promise((r) => setTimeout(r, 180));
+      applyResult(next);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const handleFileUpload = async (file: File) => {
+    setAnalyzing(true);
+    setStage(1);
+    try {
+      const bmp = await createImageBitmap(file);
+      const canvas = document.createElement('canvas');
+      canvas.width = bmp.width;
+      canvas.height = bmp.height;
+      canvas.getContext('2d')?.drawImage(bmp, 0, 0);
+      setStage(2);
+      await new Promise((r) => setTimeout(r, 200));
+      setStage(3);
+      const next = runModoAFromCanvas(canvas);
+      await new Promise((r) => setTimeout(r, 150));
+      applyResult(next);
+      setIsLiveCamera(false);
+    } catch {
+      alert('No se pudo analizar la imagen.');
+    } finally {
+      setAnalyzing(false);
     }
   };
 
   const handleTransfer = () => {
-    onTransferCode(detection.generatedCode);
+    onTransferCode(result.sourceCode);
     setTransferred(true);
-    setTimeout(() => setTransferred(false), 2500);
+    setTimeout(() => setTransferred(false), 2200);
   };
 
+  const codeLines = result.sourceCode.split('\n');
+
   return (
-    <div className="w-full h-full flex flex-col bg-[#f3efe6] dark:bg-[#0f1b13] overflow-hidden select-none">
-      {/* Top Bar */}
-      <div className="flex items-center justify-between px-6 py-3.5 bg-[#eae2d0] dark:bg-[#142318] border-b border-[#d8cca8] dark:border-[#213825]">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-[#0058a3] dark:bg-[#ffdb00] text-white dark:text-[#0e1b12] rounded-xl shadow-sm">
-            <Camera size={20} />
+    <div className="w-full h-full flex flex-col bg-[#0f1b13] overflow-hidden select-none text-[#e4eee6]">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 bg-[#142318] border-b border-[#213825] gap-3 flex-wrap">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="p-2 bg-[#ffdb00] text-[#0e1b12] rounded-xl shrink-0">
+            <Camera size={18} />
           </div>
-          <div>
-            <h2 className="font-extrabold text-sm text-[#2d2822] dark:text-[#e4eee6] tracking-tight">
-              ESCÁNER DE DESPIECE & INGENIERÍA INVERSA
+          <div className="min-w-0">
+            <h2 className="font-extrabold text-sm tracking-tight truncate">
+              Modo A · Mueble Ya Montado
             </h2>
-            <p className="text-xs text-[#7d6d59] dark:text-[#839d8b]">
-              Detección espacial de paneles, patas y herrajes $\rightarrow$ Deconstrucción a IkeaLang AST
+            <p className="text-[11px] text-[#839d8b] truncate">
+              Escaneo universal (cualquier mueble) → IkeaLang → Assembly Twin 3D
             </p>
           </div>
         </div>
 
-        {/* Action Controls */}
-        <div className="flex items-center gap-2">
-          {/* Preset Buttons */}
-          <div className="flex items-center bg-[#ded3be] dark:bg-[#1b2f21] p-1 rounded-xl text-xs font-semibold">
-            <button
-              onClick={() => handlePresetChange('kallax')}
-              className={`px-3 py-1.5 rounded-lg transition-colors ${
-                selectedPreset === 'kallax'
-                  ? 'bg-white dark:bg-[#253f2c] text-[#0058a3] dark:text-[#ffdb00] shadow-sm'
-                  : 'text-[#6f5e4b] dark:text-[#88a38f]'
-              }`}
-            >
-              KALLAX 2x2
-            </button>
-            <button
-              onClick={() => handlePresetChange('lack')}
-              className={`px-3 py-1.5 rounded-lg transition-colors ${
-                selectedPreset === 'lack'
-                  ? 'bg-white dark:bg-[#253f2c] text-[#0058a3] dark:text-[#ffdb00] shadow-sm'
-                  : 'text-[#6f5e4b] dark:text-[#88a38f]'
-              }`}
-            >
-              Mesa LACK
-            </button>
-            <button
-              onClick={() => handlePresetChange('alex')}
-              className={`px-3 py-1.5 rounded-lg transition-colors ${
-                selectedPreset === 'alex'
-                  ? 'bg-white dark:bg-[#253f2c] text-[#0058a3] dark:text-[#ffdb00] shadow-sm'
-                  : 'text-[#6f5e4b] dark:text-[#88a38f]'
-              }`}
-            >
-              Cajonera ALEX
-            </button>
-          </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] font-mono px-2 py-1 rounded-lg bg-[#1b2f21] text-[#88a38f] border border-[#2b4832]">
+            {hasCapture ? 'Captura analizada' : 'Esperando foto o webcam'}
+          </span>
 
           <button
+            type="button"
             onClick={startCamera}
-            className="px-3 py-1.5 bg-white dark:bg-[#1d3324] hover:bg-neutral-100 text-[#2d2822] dark:text-[#e4eee6] border border-[#cfc1a5] dark:border-[#2b4832] rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+            className="px-3 py-1.5 bg-[#1d3324] hover:bg-[#254032] border border-[#2b4832] rounded-xl text-xs font-bold flex items-center gap-1.5"
           >
-            <Camera size={14} /> Webcam Live
+            <Camera size={14} /> Webcam
           </button>
 
           <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="px-3 py-1.5 bg-[#1d3324] hover:bg-[#254032] border border-[#2b4832] rounded-xl text-xs font-bold flex items-center gap-1.5"
+          >
+            <Upload size={14} /> Imagen
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,video/*"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void handleFileUpload(f);
+            }}
+          />
+
+          {isLiveCamera && (
+            <button
+              type="button"
+              disabled={analyzing}
+              onClick={() => void captureAndAnalyze()}
+              className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 rounded-xl text-xs font-bold disabled:opacity-50"
+            >
+              {analyzing ? 'Analizando…' : 'Capturar & Deconstruir'}
+            </button>
+          )}
+
+          <button
+            type="button"
             onClick={handleTransfer}
-            className={`px-4 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md transition-all ${
-              transferred
-                ? 'bg-emerald-600 text-white'
-                : 'bg-[#0058a3] hover:bg-[#004785] text-white'
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 ${
+              transferred ? 'bg-emerald-600' : 'bg-[#0058a3] hover:bg-[#004785]'
             }`}
           >
             {transferred ? (
               <>
-                <Check size={14} /> ¡Transferido al Taller!
+                <Check size={14} /> Transferido
               </>
             ) : (
               <>
-                <ArrowRight size={14} /> Transferir al Taller
+                <ArrowRight size={14} /> Al Taller
               </>
             )}
           </button>
         </div>
       </div>
 
-      {/* Main Scanner Workspace Grid */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5 p-6 overflow-hidden">
-        {/* Left Column: Spatial Visualizer with CV Bounding Box Overlays */}
-        <div className="lg:col-span-7 flex flex-col bg-[#ede5d3] dark:bg-[#152319] border-2 border-[#cfc1a5] dark:border-[#27402d] rounded-2xl overflow-hidden shadow-inner">
-          {/* View Mode Switcher */}
-          <div className="flex items-center justify-between px-4 py-2.5 bg-[#e2d8c3] dark:bg-[#1b2e21] border-b border-[#cfc1a5] dark:border-[#27402d]">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs font-mono font-bold text-[#4e4334] dark:text-[#9bc2a4]">
-                RED NEURONAL CV: {detection.furnitureName}
-              </span>
-            </div>
+      {/* Pipeline stage strip */}
+      <div className="flex items-center gap-1 px-4 py-2 bg-[#121f16] border-b border-[#1e3224] text-[10px] font-mono overflow-x-auto">
+        {[
+          { n: 1 as const, label: 'Segmentación OBB', icon: Layers },
+          { n: 2 as const, label: 'Grafo topológico', icon: GitBranch },
+          { n: 3 as const, label: 'Síntesis .ikea', icon: Code2 },
+          { n: 4 as const, label: 'Assembly Twin', icon: Box },
+        ].map(({ n, label, icon: Icon }) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => setStage(n)}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border transition-colors ${
+              stage === n
+                ? 'bg-[#253f2c] border-[#ffdb00]/40 text-[#ffdb00]'
+                : 'border-transparent text-[#7a9582] hover:text-[#c5d9cb]'
+            }`}
+          >
+            <Icon size={12} />
+            <span>
+              S{n}: {label}
+            </span>
+          </button>
+        ))}
+        {analyzing && (
+          <span className="ml-2 text-amber-300 animate-pulse">pipeline en curso…</span>
+        )}
+      </div>
 
-            <div className="flex items-center gap-1 bg-[#d5c9b0] dark:bg-[#132217] p-0.5 rounded-lg text-xs">
-              <button
-                onClick={() => setActiveTab('scan')}
-                className={`px-2.5 py-1 rounded-md font-semibold ${
-                  activeTab === 'scan'
-                    ? 'bg-white dark:bg-[#253f2c] text-[#0058a3] dark:text-[#ffdb00] shadow-sm'
-                    : 'text-[#6b5b48] dark:text-[#88a38f]'
-                }`}
-              >
-                Detección Espacial
-              </button>
-              <button
-                onClick={() => setActiveTab('exploded')}
-                className={`px-2.5 py-1 rounded-md font-semibold ${
-                  activeTab === 'exploded'
-                    ? 'bg-white dark:bg-[#253f2c] text-[#0058a3] dark:text-[#ffdb00] shadow-sm'
-                    : 'text-[#6b5b48] dark:text-[#88a38f]'
-                }`}
-              >
-                Despiece AR 3D
-              </button>
-            </div>
-          </div>
-
-          {/* Viewport Content */}
-          <div className="relative flex-1 bg-[#1a1c1e] flex items-center justify-center overflow-hidden">
-            {isLiveCamera && (
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className="absolute inset-0 w-full h-full object-cover opacity-80"
-              />
-            )}
-
-            {/* If not live camera, show rich geometric blueprint representation */}
-            {!isLiveCamera && (
-              <div className="relative w-full h-full flex items-center justify-center p-8 bg-[radial-gradient(#253d2c_1px,transparent_1px)] [background-size:16px_16px] bg-[#121c15]">
-                {/* SVG Blueprint Furniture Representation */}
-                <div
-                  className="relative w-80 h-80 transition-all duration-300"
-                  style={{
-                    transform:
-                      activeTab === 'exploded'
-                        ? `scale(${1 - explosionAmount * 0.002}) rotateX(${explosionAmount * 0.3}deg)`
-                        : 'none',
-                  }}
-                >
-                  {detection.parts.map((part, idx) => {
-                    const explodeOffset = (explosionAmount / 100) * (idx % 2 === 0 ? 40 : -40);
-                    return (
-                      <div
-                        key={part.id}
-                        className="absolute border-2 border-dashed rounded transition-all duration-300 flex items-center justify-center group"
-                        style={{
-                          left: `${part.bbox.x * 100}%`,
-                          top: `${part.bbox.y * 100}%`,
-                          width: `${part.bbox.width * 100}%`,
-                          height: `${part.bbox.height * 100}%`,
-                          borderColor: part.color,
-                          backgroundColor: `${part.color}22`,
-                          transform:
-                            activeTab === 'exploded'
-                              ? `translate(${explodeOffset}px, ${explodeOffset * 1.5}px)`
-                              : 'none',
-                        }}
-                      >
-                        {/* Dimension tag */}
-                        <div
-                          className="absolute -top-5 left-0 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold text-white shadow-sm opacity-90 group-hover:opacity-100"
-                          style={{ backgroundColor: part.color }}
-                        >
-                          {part.name} ({part.dimensions.width}x{part.dimensions.height}mm)
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Exploded AR Slider Bar */}
-            {activeTab === 'exploded' && (
-              <div className="absolute bottom-4 inset-x-4 bg-black/80 backdrop-blur-md p-3 rounded-xl border border-white/10 flex items-center gap-4 text-white">
-                <Sliders size={16} className="text-[#ffdb00]" />
-                <span className="text-xs font-bold whitespace-nowrap">
-                  Desensamblaje AR: {explosionAmount}%
-                </span>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={explosionAmount}
-                  onChange={(e) => setExplosionAmount(Number(e.target.value))}
-                  className="w-full accent-[#ffdb00] cursor-pointer"
-                />
-                <button
-                  onClick={() => setExplosionAmount(explosionAmount === 0 ? 80 : 0)}
-                  className="px-2.5 py-1 bg-white/20 hover:bg-white/30 rounded text-xs font-semibold whitespace-nowrap"
-                >
-                  {explosionAmount === 0 ? 'Explotar' : 'Unir'}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Reverse Assembly Stepper Bar */}
-          <div className="p-3 bg-[#e8dfcf] dark:bg-[#182b1d] border-t border-[#cfc1a5] dark:border-[#27402d] flex items-center justify-between text-xs">
-            <div className="flex items-center gap-2">
-              <RotateCcw size={15} className="text-[#0058a3] dark:text-[#ffdb00]" />
-              <span className="font-bold text-[#3d3326] dark:text-[#e4eee6]">
-                Despiece Inverso Paso a Paso:
-              </span>
-              <span className="font-mono text-[#0058a3] dark:text-[#ffdb00]">
-                {detection.reverseSteps[reverseStepIndex]?.action || 'Despiece concluido'}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-1">
-              <button
-                disabled={reverseStepIndex === 0}
-                onClick={() => setReverseStepIndex(i => Math.max(0, i - 1))}
-                className="px-2 py-1 bg-white dark:bg-[#253f2c] rounded border border-[#cfc1a5] dark:border-[#2b4832] disabled:opacity-40"
-              >
-                Paso Anterior
-              </button>
-              <button
-                disabled={reverseStepIndex >= detection.reverseSteps.length - 1}
-                onClick={() => setReverseStepIndex(i => Math.min(detection.reverseSteps.length - 1, i + 1))}
-                className="px-2 py-1 bg-[#0058a3] text-white dark:bg-[#ffdb00] dark:text-[#111] rounded font-bold disabled:opacity-40"
-              >
-                Paso Siguiente
-              </button>
-            </div>
+      {/* Workspace */}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-0 overflow-hidden min-h-0">
+        {/* Left: 3D Twin / camera */}
+        <div className="lg:col-span-7 flex flex-col border-r border-[#213825] min-h-0 relative">
+          {isLiveCamera && stage === 1 && (
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="absolute inset-0 w-full h-full object-cover z-10"
+            />
+          )}
+          <div className={`flex-1 min-h-0 ${isLiveCamera && stage === 1 ? 'opacity-30' : ''}`}>
+            <AssemblyTwinViewport
+              graph={result.graph}
+              explosion={explosion}
+              assemblyStep={assemblyStep}
+              isPlaying={isPlaying}
+              onExplosionChange={setExplosion}
+              onAssemblyStepChange={setAssemblyStep}
+              onPlayingChange={setIsPlaying}
+              collisionFlags={result.collisionFlags}
+              activeCodeLine={activeLine}
+            />
           </div>
         </div>
 
-        {/* Right Column: Deconstructed Inventory & Generated IkeaLang Source */}
-        <div className="lg:col-span-5 flex flex-col gap-4 overflow-hidden">
-          {/* Card 1: Detected Parts Hardware Inventory */}
-          <div className="bg-[#ede5d3] dark:bg-[#152319] border-2 border-[#cfc1a5] dark:border-[#27402d] rounded-2xl p-4 shadow-sm">
-            <h3 className="text-xs font-extrabold uppercase tracking-wider text-[#63533e] dark:text-[#8ca893] mb-3 flex items-center justify-between">
-              <span>Inventario Detectado por CV ({detection.parts.length} piezas)</span>
-              <span className="text-[#0058a3] dark:text-[#ffdb00] font-mono">
-                {detection.estimatedScrews} tornillos / {detection.estimatedDowels} clavijas
-              </span>
-            </h3>
-
-            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-              {detection.parts.map((p) => (
-                <div
-                  key={p.id}
-                  className="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-[#111e15] border border-[#ded3be] dark:border-[#263e2c] text-xs font-mono shadow-sm"
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="w-3 h-3 rounded-full border border-black/20"
-                      style={{ backgroundColor: p.color }}
-                    />
-                    <span className="font-bold text-[#2d2822] dark:text-[#dce6df]">{p.name}</span>
-                  </div>
-                  <div className="text-[#7f6e5b] dark:text-[#88a590] text-[11px]">
-                    {p.dimensions.width}×{p.dimensions.height}×{p.dimensions.depth}mm
-                  </div>
+        {/* Right: inventory + code */}
+        <div className="lg:col-span-5 flex flex-col min-h-0 bg-[#152319]">
+          {/* Stage panels */}
+          {stage === 2 && (
+            <div className="p-3 border-b border-[#27402d] text-xs space-y-2 max-h-40 overflow-y-auto">
+              <h3 className="font-bold text-[#ffdb00] text-[11px] uppercase tracking-wider">
+                Contact Graph · {result.graph.joints.length} uniones
+              </h3>
+              {result.graph.joints.slice(0, 12).map((j) => (
+                <div key={j.id} className="font-mono text-[10px] text-[#9bc2a4]">
+                  {j.aId} ↔ {j.bId} · {j.jointType} · fuerza {j.strength.toFixed(2)}
                 </div>
               ))}
+              <div className="text-[10px] text-[#88a590]">
+                Anclas suelo: {result.graph.groundAnchors.join(', ') || '—'}
+                {result.graph.tippingThresholdExceeded && (
+                  <span className="text-amber-300"> · ENTRE_DOS recomendado</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="p-3 border-b border-[#27402d]">
+            <h3 className="text-[11px] font-extrabold uppercase tracking-wider text-[#8ca893] mb-2 flex items-center justify-between">
+              <span>Inventario CV ({result.graph.primitives.length})</span>
+              <span className="font-mono text-[#ffdb00]">
+                montados {Object.values(inventory).filter((v) => v === 0).length}/
+                {result.graph.primitives.length}
+              </span>
+            </h3>
+            <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
+              {result.graph.primitives.map((p) => {
+                const left = inventory[p.id] ?? 1;
+                return (
+                  <div
+                    key={p.id}
+                    className={`flex items-center justify-between px-2 py-1.5 rounded-lg border text-[11px] font-mono ${
+                      left === 0
+                        ? 'bg-emerald-950/40 border-emerald-800/50 opacity-60'
+                        : 'bg-[#111e15] border-[#263e2c]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: p.materialTone }}
+                      />
+                      <span className="truncate">{p.name}</span>
+                      <span className="text-[#6d8674]">{p.kind}</span>
+                    </div>
+                    <span className="text-[#88a590] shrink-0">
+                      {left === 0 ? '✓' : `${Math.round(p.obb.size.x)}×${Math.round(p.obb.size.y)}mm`}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          {/* Card 2: Generated IkeaLang Source Code Preview */}
-          <div className="flex-1 flex flex-col bg-[#142118] border-2 border-[#2b4832] rounded-2xl p-4 shadow-sm overflow-hidden">
+          {result.collisionFlags.length > 0 && (
+            <div className="px-3 py-2 bg-red-950/40 border-b border-red-800/40 text-[11px] text-red-200 flex items-start gap-2">
+              <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                {result.collisionFlags.map((c, i) => (
+                  <p key={i}>{c.message}</p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex-1 flex flex-col min-h-0 p-3">
             <div className="flex items-center justify-between pb-2 mb-2 border-b border-[#2b4832]">
               <div className="flex items-center gap-2">
-                <Sparkles size={16} className="text-[#ffdb00]" />
-                <span className="text-xs font-bold text-[#ffdb00] uppercase tracking-wider">
-                  Código IkeaLang Reconstruido
+                <Sparkles size={14} className="text-[#ffdb00]" />
+                <span className="text-[11px] font-bold text-[#ffdb00] uppercase tracking-wider">
+                  Código sintetizado
                 </span>
               </div>
-              <span className="text-[11px] text-[#86a68f] font-mono">.ikea generado</span>
+              <span className="text-[10px] text-[#86a68f] font-mono">
+                {result.graph.steps.length} PASOS
+              </span>
             </div>
 
-            <pre className="flex-1 overflow-y-auto text-[11px] font-mono text-[#cadbd0] leading-relaxed select-text p-2 bg-[#0c1610] rounded-xl border border-[#1f3725]">
-              {detection.generatedCode}
+            <pre className="flex-1 overflow-auto text-[11px] font-mono leading-relaxed select-text p-2 bg-[#0c1610] rounded-xl border border-[#1f3725]">
+              {codeLines.map((line, i) => {
+                const ln = i + 1;
+                const hi =
+                  activeLine != null &&
+                  result.graph.steps.some(
+                    (s) =>
+                      s.stepNumber === assemblyStep &&
+                      s.codeLineStart != null &&
+                      s.codeLineEnd != null &&
+                      ln >= s.codeLineStart &&
+                      ln <= s.codeLineEnd
+                  );
+                return (
+                  <div
+                    key={i}
+                    className={`px-1 rounded ${
+                      hi ? 'bg-[#0058a3]/45 text-white' : 'text-[#cadbd0]'
+                    }`}
+                  >
+                    <span className="inline-block w-7 text-[#4d6556] select-none">{ln}</span>
+                    {line || ' '}
+                  </div>
+                );
+              })}
             </pre>
 
             <button
+              type="button"
               onClick={handleTransfer}
-              className="mt-3 w-full py-2 bg-[#ffdb00] hover:bg-[#e6c500] text-[#0f1b13] rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 shadow-md transition-all"
+              className="mt-3 w-full py-2 bg-[#ffdb00] hover:bg-[#e6c500] text-[#0f1b13] rounded-xl text-xs font-extrabold flex items-center justify-center gap-2"
             >
-              <ArrowRight size={15} /> Cargar en Mesa de Taller & Caja de Montaje
+              <ArrowRight size={15} /> Cargar en Mesa de Taller
             </button>
           </div>
         </div>

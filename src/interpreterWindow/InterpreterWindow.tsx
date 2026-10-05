@@ -59,20 +59,27 @@ export const InterpreterWindow: React.FC<InterpreterWindowProps> = ({
     const top = window.screen.height / 2 - height / 2;
 
     const newWindow = window.open(
-      '',
+      'about:blank',
       'IkeaLangInterpreterPopup',
-      `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+      `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
     );
 
     if (newWindow) {
+      newWindow.document.open();
+      newWindow.document.write(
+        '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>'
+      );
+      newWindow.document.close();
       newWindow.document.title = 'IKEALang v1.1 - Intérprete y Montaje 3D (Ventana Independiente)';
-      // Copy styles
+
       document.querySelectorAll('link[rel="stylesheet"], style').forEach((styleTag) => {
         newWindow.document.head.appendChild(styleTag.cloneNode(true));
       });
 
-      // Tailored body background
-      newWindow.document.body.className = 'bg-[#181818] text-[#cccccc] m-0 p-0 overflow-hidden font-sans';
+      newWindow.document.body.className =
+        'bg-[#181818] text-[#cccccc] m-0 p-0 overflow-hidden font-sans';
+      newWindow.document.body.style.margin = '0';
+      newWindow.document.body.style.height = '100vh';
 
       setPopoutWindow(newWindow);
       setIsPopout(true);
@@ -82,7 +89,9 @@ export const InterpreterWindow: React.FC<InterpreterWindowProps> = ({
         setPopoutWindow(null);
       };
     } else {
-      alert('La ventana emergente fue bloqueada por el navegador. Mostrando ventana flotante.');
+      alert(
+        'No se pudo abrir la ventana externa. Usa la ventana flotante del IDE o reinicia la app de escritorio (Electron).'
+      );
     }
   };
 

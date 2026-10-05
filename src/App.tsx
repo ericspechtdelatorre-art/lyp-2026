@@ -497,7 +497,12 @@ export const App: React.FC = () => {
 
               {/* MODE 3: Escáner de Despiece (CV & AR) */}
               {mode === 'scanner' && (
-                <FurnitureScanner onTransferCode={handleTransferFromScanner} />
+                <FurnitureScanner
+                  onTransferCode={handleTransferFromScanner}
+                  onHighlightLine={(line) => {
+                    if (line != null) setCursorPos((prev) => ({ ...prev, line }));
+                  }}
+                />
               )}
             </div>
 
