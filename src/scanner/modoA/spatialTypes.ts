@@ -105,15 +105,6 @@ export interface IkeaLangASTNode {
   terminado: string;
 }
 
-export interface ModoAPipelineResult {
-  graph: AssemblyGraph;
-  ast: IkeaLangASTNode;
-  sourceCode: string;
-  reverseSteps: Array<{ step: number; action: string; removedPart: string }>;
-  inventoryRemaining: Record<string, number>;
-  collisionFlags: CollisionFlag[];
-}
-
 export interface CollisionFlag {
   partId: string;
   stepNumber: number;
@@ -122,3 +113,17 @@ export interface CollisionFlag {
 }
 
 export type ModoAPresetId = 'lack' | 'kallax' | 'alex' | 'chair' | 'billy';
+
+/** Guided multi-view webcam capture angles */
+export type ScanViewId = 'front' | 'side' | 'top';
+
+export interface ModoAPipelineResult {
+  graph: AssemblyGraph;
+  ast: IkeaLangASTNode;
+  sourceCode: string;
+  reverseSteps: Array<{ step: number; action: string; removedPart: string }>;
+  inventoryRemaining: Record<string, number>;
+  collisionFlags: CollisionFlag[];
+  /** Number of camera/image views used for reconstruction */
+  viewCount?: number;
+}

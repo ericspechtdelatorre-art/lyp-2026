@@ -61,8 +61,20 @@ function extractContactGraph(primitives: ScannedPrimitive[]): ContactJoint[] {
 }
 
 function isGrounded(p: ScannedPrimitive): boolean {
+  if (p.role === 'leg' || p.role === 'bottom') return true;
+  // Full-height side panels touch Y=0 but are not base anchors
+  if (
+    p.role === 'side' ||
+    p.role === 'shelf' ||
+    p.role === 'top' ||
+    p.role === 'back' ||
+    p.role === 'drawer' ||
+    p.role === 'frame'
+  ) {
+    return false;
+  }
   const bottom = p.obb.center.y - p.obb.halfExtents.y;
-  return bottom <= 5 || p.role === 'leg' || p.role === 'bottom';
+  return bottom <= 5;
 }
 
 /**

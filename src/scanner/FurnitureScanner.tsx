@@ -1,6 +1,5 @@
 // ============================================================================
-// Modo A: "Mueble Ya Montado" — Reverse Engineering & Assembly Twin UI
-// Pipeline: Ingest → Segmentation → Graph → .ikea → 3D Twin
+// Modo A: "Mueble Ya Montado" — Multi-view camera scan + Assembly Twin
 // ============================================================================
 
 import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
@@ -15,15 +14,41 @@ import {
   Box,
   GitBranch,
   Code2,
+  RotateCcw,
+  Aperture,
 } from 'lucide-react';
 import { AssemblyTwinViewport } from './modoA/AssemblyTwinViewport.tsx';
-import { inventoryAtStep, runModoAFromCanvas, runModoAGeneric } from './modoA/pipeline.ts';
-import { ModoAPipelineResult } from './modoA/spatialTypes.ts';
+import {
+  inventoryAtStep,
+  runModoAFromCanvas,
+  runModoAFromMultiView,
+  runModoAGeneric,
+} from './modoA/pipeline.ts';
+import { ModoAPipelineResult, ScanViewId } from './modoA/spatialTypes.ts';
 
 interface FurnitureScannerProps {
   onTransferCode: (code: string) => void;
-  /** Optional: notify IDE of active source line for editor sync */
   onHighlightLine?: (line: number | null) => void;
+}
+
+const SCAN_VIEWS: Array<{ id: ScanViewId; label: string; prompt: string }> = [
+  { id: 'front', label: 'Frente', prompt: 'Enfrente del mueble (frontal)' },
+  { id: 'side', label: 'Lateral', prompt: 'Gira 90° — vista lateral' },
+  { id: 'top', label: 'Arriba', prompt: 'Desde arriba o 3/4 superior' },
+];
+
+interface CapturedView {
+  id: ScanViewId;
+  canvas: HTMLCanvasElement;
+  thumbnail: string;
+}
+
+function grabFrameFromVideo(video: HTMLVideoElement): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
+  canvas.getContext('2d')?.drawImage(video, 0, 0);
+  return canvas;
 }
 
 export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
@@ -37,8 +62,12 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
   const [assemblyStep, setAssemblyStep] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLiveCamera, setIsLiveCamera] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [transferred, setTransferred] = useState(false);
+  const [captures, setCaptures] = useState<CapturedView[]>([]);
+  const [activeViewIndex, setActiveViewIndex] = useState(0);
+  const [flash, setFlash] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -54,6 +83,9 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
     return step?.codeLineStart ?? null;
   }, [result, assemblyStep]);
 
+  const activeView = SCAN_VIEWS[Math.min(activeViewIndex, SCAN_VIEWS.length - 1)];
+  const allViewsCaptured = SCAN_VIEWS.every((v) => captures.some((c) => c.id === v.id));
+
   useEffect(() => {
     onHighlightLine?.(activeLine);
   }, [activeLine, onHighlightLine]);
@@ -63,6 +95,17 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, []);
+
+  useEffect(() => {
+    if (!isLiveCamera || !streamRef.current || !videoRef.current) return;
+    const video = videoRef.current;
+    if (video.srcObject !== streamRef.current) {
+      video.srcObject = streamRef.current;
+    }
+    void video.play().catch(() => {
+      /* muted autoplay */
+    });
+  }, [isLiveCamera]);
 
   const applyResult = useCallback((next: ModoAPipelineResult, fromCapture = true) => {
     setResult(next);
@@ -74,48 +117,123 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
     window.setTimeout(() => setExplosion(0), 900);
   }, []);
 
+  const resetCaptures = useCallback(() => {
+    setCaptures([]);
+    setActiveViewIndex(0);
+  }, []);
+
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setIsLiveCamera(false);
+  }, []);
+
   const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-        setIsLiveCamera(true);
-        setStage(1);
-      }
-    } catch {
-      alert('No se pudo acceder a la cámara. Usa un preset o sube una imagen.');
+    setCameraError(null);
+    if (!navigator.mediaDevices?.getUserMedia) {
+      const msg = 'Este entorno no soporta webcam (mediaDevices no disponible).';
+      setCameraError(msg);
+      alert(msg);
+      return;
     }
+
+    stopCamera();
+    resetCaptures();
+
+    const tryConstraints: MediaStreamConstraints[] = [
+      {
+        audio: false,
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      },
+      {
+        audio: false,
+        video: {
+          facingMode: 'user',
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      },
+      { audio: false, video: true },
+    ];
+
+    let lastErr: unknown = null;
+    for (const constraints of tryConstraints) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        streamRef.current = stream;
+        setStage(1);
+        setIsLiveCamera(true);
+        return;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+
+    const name = lastErr instanceof DOMException ? lastErr.name : 'Error';
+    const msg =
+      name === 'NotAllowedError' || name === 'PermissionDeniedError'
+        ? 'Permiso de cámara denegado. Actívalo en Windows / Electron e inténtalo de nuevo.'
+        : name === 'NotFoundError' || name === 'DevicesNotFoundError'
+          ? 'No se encontró ninguna webcam conectada.'
+          : 'No se pudo abrir la webcam. Comprueba que no la esté usando otra app.';
+    setCameraError(msg);
+    alert(msg);
   };
 
-  const captureAndAnalyze = async () => {
+  const analyzeMultiView = async (views: CapturedView[]) => {
     setAnalyzing(true);
     setStage(1);
     try {
-      const canvas = document.createElement('canvas');
-      if (isLiveCamera && videoRef.current) {
-        canvas.width = videoRef.current.videoWidth || 640;
-        canvas.height = videoRef.current.videoHeight || 480;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(videoRef.current, 0, 0);
-      } else {
-        canvas.width = 640;
-        canvas.height = 480;
-      }
-      // Simulate staged pipeline latency for UX
-      await new Promise((r) => setTimeout(r, 280));
-      setStage(2);
       await new Promise((r) => setTimeout(r, 220));
+      setStage(2);
+      await new Promise((r) => setTimeout(r, 200));
       setStage(3);
-      const next = runModoAFromCanvas(canvas);
-      await new Promise((r) => setTimeout(r, 180));
+      const next = runModoAFromMultiView(
+        views.map((v) => ({ id: v.id, canvas: v.canvas }))
+      );
+      await new Promise((r) => setTimeout(r, 160));
+      stopCamera();
       applyResult(next);
     } finally {
       setAnalyzing(false);
     }
+  };
+
+  const captureCurrentView = async () => {
+    if (!videoRef.current || !isLiveCamera) return;
+    const view = SCAN_VIEWS[activeViewIndex];
+    if (!view) return;
+
+    const canvas = grabFrameFromVideo(videoRef.current);
+    const thumbnail = canvas.toDataURL('image/jpeg', 0.72);
+    setFlash(true);
+    window.setTimeout(() => setFlash(false), 160);
+
+    const nextCaptures = [
+      ...captures.filter((c) => c.id !== view.id),
+      { id: view.id, canvas, thumbnail },
+    ];
+    setCaptures(nextCaptures);
+
+    const nextIndex = activeViewIndex + 1;
+    if (nextIndex < SCAN_VIEWS.length) {
+      setActiveViewIndex(nextIndex);
+      return;
+    }
+
+    // Last view → auto analyze
+    await analyzeMultiView(nextCaptures);
+  };
+
+  const retakeActiveView = () => {
+    const view = SCAN_VIEWS[activeViewIndex];
+    if (!view) return;
+    setCaptures((prev) => prev.filter((c) => c.id !== view.id));
   };
 
   const handleFileUpload = async (file: File) => {
@@ -132,8 +250,9 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
       setStage(3);
       const next = runModoAFromCanvas(canvas);
       await new Promise((r) => setTimeout(r, 150));
+      stopCamera();
+      resetCaptures();
       applyResult(next);
-      setIsLiveCamera(false);
     } catch {
       alert('No se pudo analizar la imagen.');
     } finally {
@@ -162,22 +281,32 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
               Modo A · Mueble Ya Montado
             </h2>
             <p className="text-[11px] text-[#839d8b] truncate">
-              Escaneo universal (cualquier mueble) → IkeaLang → Assembly Twin 3D
+              Captura multipunto (frente · lateral · arriba) → reconstrucción 3D → IkeaLang
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[10px] font-mono px-2 py-1 rounded-lg bg-[#1b2f21] text-[#88a38f] border border-[#2b4832]">
-            {hasCapture ? 'Captura analizada' : 'Esperando foto o webcam'}
+            {hasCapture
+              ? result.viewCount && result.viewCount > 1
+                ? `Reconstruido desde ${result.viewCount} vistas`
+                : 'Captura analizada'
+              : isLiveCamera
+                ? `Vistas ${captures.length}/3`
+                : 'Esperando foto o webcam'}
           </span>
 
           <button
             type="button"
-            onClick={startCamera}
-            className="px-3 py-1.5 bg-[#1d3324] hover:bg-[#254032] border border-[#2b4832] rounded-xl text-xs font-bold flex items-center gap-1.5"
+            onClick={() => void (isLiveCamera ? stopCamera() : startCamera())}
+            className={`px-3 py-1.5 border rounded-xl text-xs font-bold flex items-center gap-1.5 ${
+              isLiveCamera
+                ? 'bg-emerald-800/80 border-emerald-600 hover:bg-emerald-700'
+                : 'bg-[#1d3324] hover:bg-[#254032] border-[#2b4832]'
+            }`}
           >
-            <Camera size={14} /> Webcam
+            <Camera size={14} /> {isLiveCamera ? 'Cerrar Webcam' : 'Webcam'}
           </button>
 
           <button
@@ -199,14 +328,41 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
           />
 
           {isLiveCamera && (
-            <button
-              type="button"
-              disabled={analyzing}
-              onClick={() => void captureAndAnalyze()}
-              className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 rounded-xl text-xs font-bold disabled:opacity-50"
-            >
-              {analyzing ? 'Analizando…' : 'Capturar & Deconstruir'}
-            </button>
+            <>
+              <button
+                type="button"
+                disabled={analyzing}
+                onClick={() => void captureCurrentView()}
+                className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 rounded-xl text-xs font-bold disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <Aperture size={14} />
+                {analyzing
+                  ? 'Analizando…'
+                  : allViewsCaptured
+                    ? 'Analizar 3D'
+                    : `Capturar ${activeView.label} (${activeViewIndex + 1}/3)`}
+              </button>
+              {captures.length > 0 && (
+                <button
+                  type="button"
+                  disabled={analyzing}
+                  onClick={resetCaptures}
+                  className="px-2.5 py-1.5 bg-[#1d3324] border border-[#2b4832] hover:bg-[#254032] rounded-xl text-xs font-bold flex items-center gap-1"
+                  title="Empezar de nuevo"
+                >
+                  <RotateCcw size={12} /> Reiniciar
+                </button>
+              )}
+              {allViewsCaptured && !analyzing && (
+                <button
+                  type="button"
+                  onClick={() => void analyzeMultiView(captures)}
+                  className="px-3 py-1.5 bg-[#0058a3] hover:bg-[#004785] rounded-xl text-xs font-bold"
+                >
+                  Analizar 3D
+                </button>
+              )}
+            </>
           )}
 
           <button
@@ -260,18 +416,85 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
 
       {/* Workspace */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-0 overflow-hidden min-h-0">
-        {/* Left: 3D Twin / camera */}
         <div className="lg:col-span-7 flex flex-col border-r border-[#213825] min-h-0 relative">
-          {isLiveCamera && stage === 1 && (
+          {isLiveCamera && (
             <video
               ref={videoRef}
               autoPlay
               playsInline
               muted
-              className="absolute inset-0 w-full h-full object-cover z-10"
+              className="absolute inset-0 w-full h-full object-cover z-10 bg-black"
             />
           )}
-          <div className={`flex-1 min-h-0 ${isLiveCamera && stage === 1 ? 'opacity-30' : ''}`}>
+
+          {flash && (
+            <div className="absolute inset-0 z-30 bg-white/70 pointer-events-none animate-pulse" />
+          )}
+
+          {isLiveCamera && (
+            <div className="absolute top-3 left-3 right-3 z-20 flex flex-col gap-2 pointer-events-none">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-mono px-2 py-1 rounded bg-red-700/90 text-white flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                  WEBCAM · {activeViewIndex + 1}/3
+                </span>
+                <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-black/70 text-[#ffdb00] border border-[#ffdb00]/30">
+                  Gira el mueble: {activeView.prompt.toUpperCase()}
+                </span>
+              </div>
+
+              {/* Thumbnail strip */}
+              <div className="flex gap-2 pointer-events-auto">
+                {SCAN_VIEWS.map((v, i) => {
+                  const cap = captures.find((c) => c.id === v.id);
+                  const isActive = i === activeViewIndex;
+                  return (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => setActiveViewIndex(i)}
+                      className={`relative w-20 h-14 rounded-lg overflow-hidden border-2 text-left ${
+                        isActive
+                          ? 'border-[#ffdb00]'
+                          : cap
+                            ? 'border-emerald-500/70'
+                            : 'border-white/20'
+                      }`}
+                    >
+                      {cap ? (
+                        <img src={cap.thumbnail} alt={v.label} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full bg-black/50 flex items-center justify-center text-[10px] font-mono text-white/70">
+                          {i + 1}. {v.label}
+                        </div>
+                      )}
+                      <span className="absolute bottom-0 inset-x-0 bg-black/70 text-[9px] text-center py-0.5">
+                        {v.label}
+                        {cap ? ' ✓' : ''}
+                      </span>
+                    </button>
+                  );
+                })}
+                {captures.some((c) => c.id === activeView.id) && (
+                  <button
+                    type="button"
+                    onClick={retakeActiveView}
+                    className="px-2 rounded-lg bg-black/60 border border-white/20 text-[10px] font-bold hover:bg-black/80"
+                  >
+                    Repetir
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {cameraError && !isLiveCamera && (
+            <div className="absolute bottom-3 left-3 right-3 z-20 text-[11px] font-mono px-3 py-2 rounded-lg bg-red-950/90 border border-red-700/50 text-red-100">
+              {cameraError}
+            </div>
+          )}
+
+          <div className={`flex-1 min-h-0 ${isLiveCamera ? 'opacity-0 pointer-events-none' : ''}`}>
             <AssemblyTwinViewport
               graph={result.graph}
               explosion={explosion}
@@ -286,9 +509,7 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
           </div>
         </div>
 
-        {/* Right: inventory + code */}
         <div className="lg:col-span-5 flex flex-col min-h-0 bg-[#152319]">
-          {/* Stage panels */}
           {stage === 2 && (
             <div className="p-3 border-b border-[#27402d] text-xs space-y-2 max-h-40 overflow-y-auto">
               <h3 className="font-bold text-[#ffdb00] text-[11px] uppercase tracking-wider">
@@ -299,12 +520,6 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
                   {j.aId} ↔ {j.bId} · {j.jointType} · fuerza {j.strength.toFixed(2)}
                 </div>
               ))}
-              <div className="text-[10px] text-[#88a590]">
-                Anclas suelo: {result.graph.groundAnchors.join(', ') || '—'}
-                {result.graph.tippingThresholdExceeded && (
-                  <span className="text-amber-300"> · ENTRE_DOS recomendado</span>
-                )}
-              </div>
             </div>
           )}
 
@@ -312,8 +527,9 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
             <h3 className="text-[11px] font-extrabold uppercase tracking-wider text-[#8ca893] mb-2 flex items-center justify-between">
               <span>Inventario CV ({result.graph.primitives.length})</span>
               <span className="font-mono text-[#ffdb00]">
-                montados {Object.values(inventory).filter((v) => v === 0).length}/
-                {result.graph.primitives.length}
+                {result.viewCount && result.viewCount > 1
+                  ? `${result.viewCount} vistas`
+                  : `${Object.values(inventory).filter((v) => v === 0).length}/${result.graph.primitives.length}`}
               </span>
             </h3>
             <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
@@ -337,7 +553,9 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
                       <span className="text-[#6d8674]">{p.kind}</span>
                     </div>
                     <span className="text-[#88a590] shrink-0">
-                      {left === 0 ? '✓' : `${Math.round(p.obb.size.x)}×${Math.round(p.obb.size.y)}mm`}
+                      {left === 0
+                        ? '✓'
+                        : `${Math.round(p.obb.size.x)}×${Math.round(p.obb.size.y)}×${Math.round(p.obb.size.z)}mm`}
                     </span>
                   </div>
                 );

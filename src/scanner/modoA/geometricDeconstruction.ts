@@ -7,6 +7,7 @@ import {
   ModoAPresetId,
   OrientedBoundingBox,
   PartRole,
+  ScanViewId,
   ScannedPrimitive,
   Vec3,
 } from './spatialTypes.ts';
@@ -260,32 +261,73 @@ export function deconstructPreset(preset: ModoAPresetId): {
 }
 
 const GENERIC_FURNITURE_NAME = 'MuebleEscaneado';
+const OPEN_SHELF_NAME = 'EstanteriaAbiertaEscaneada';
+
+export type FurnitureTopology =
+  | 'open_shelf'
+  | 'closed_cabinet'
+  | 'table'
+  | 'modular'
+  | 'unknown';
 
 type SilhouetteMetrics = {
   aspect: number;
   fill: number;
   upperMass: number;
   lowerMass: number;
+  /** Number of interior horizontal shelves detected (excluding top/bottom) */
   hPeaks: number;
+  /** Absolute Y positions of shelf bands in bbox-normalized 0..1 (top=0) */
+  shelfBands: number[];
   bbox: { x: number; y: number; w: number; h: number };
+  topology: FurnitureTopology;
+  woodTone: string;
+  openFront: boolean;
+  sidePanelStrength: number;
+  /** Fused physical extents in mm (set by multi-view fusion) */
+  dimsMm?: { width: number; height: number; depth: number };
 };
+
+function rgbToHex(r: number, g: number, b: number): string {
+  const h = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
+  return `#${h(r)}${h(g)}${h(b)}`;
+}
+
+function isWoodLike(r: number, g: number, b: number): boolean {
+  // Light unfinished plywood / MDF: warm, moderately bright, low saturation green channel lag
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const lum = (r * 0.299 + g * 0.587 + b * 0.114) / 255;
+  const warm = r > g - 8 && g >= b - 15;
+  const notSkinHeavy = !(r > 180 && g > 120 && g < 170 && b < 140 && lum > 0.45 && lum < 0.75);
+  const notGreenVine = !(g > r + 25 && g > b + 15);
+  const notBrick = !(r > 120 && r > g + 40 && r > b + 40 && lum < 0.55);
+  const notBlackClothes = lum > 0.28;
+  const notWhiteGrid = lum < 0.92 || max - min > 18;
+  return warm && notSkinHeavy && notGreenVine && notBrick && notBlackClothes && notWhiteGrid && lum > 0.32 && lum < 0.9;
+}
 
 function analyzeSilhouette(canvas: HTMLCanvasElement): SilhouetteMetrics {
   const w = canvas.width || 1;
   const h = canvas.height || 1;
   const ctx = canvas.getContext('2d');
   const fallback: SilhouetteMetrics = {
-    aspect: w / h,
-    fill: 0.45,
-    upperMass: 0.5,
-    lowerMass: 0.5,
-    hPeaks: 2,
-    bbox: { x: 0.15, y: 0.1, w: 0.7, h: 0.8 },
+    aspect: 0.7,
+    fill: 0.12,
+    upperMass: 0.45,
+    lowerMass: 0.55,
+    hPeaks: 1,
+    shelfBands: [0.5],
+    bbox: { x: 0.35, y: 0.25, w: 0.3, h: 0.45 },
+    topology: 'open_shelf',
+    woodTone: '#d4a373',
+    openFront: true,
+    sidePanelStrength: 0.7,
   };
   if (!ctx) return fallback;
 
-  const tw = 120;
-  const th = Math.max(40, Math.round((h / w) * tw));
+  const tw = 160;
+  const th = Math.max(60, Math.round((h / w) * tw));
   const tmp = document.createElement('canvas');
   tmp.width = tw;
   tmp.height = th;
@@ -300,35 +342,28 @@ function analyzeSilhouette(canvas: HTMLCanvasElement): SilhouetteMetrics {
     return fallback;
   }
 
-  const lum = (i: number) =>
-    (data.data[i] * 0.299 + data.data[i + 1] * 0.587 + data.data[i + 2] * 0.114) / 255;
-
-  const corners = [
-    lum(0),
-    lum((tw - 1) * 4),
-    lum((th - 1) * tw * 4),
-    lum(((th - 1) * tw + tw - 1) * 4),
-  ];
-  const bg = corners.reduce((a, b) => a + b, 0) / corners.length;
-
-  const mask: boolean[] = [];
+  const woodMask: boolean[] = new Array(tw * th).fill(false);
   let minX = tw;
   let minY = th;
   let maxX = 0;
   let maxY = 0;
-  let fg = 0;
-  let upper = 0;
-  let lower = 0;
+  let woodCount = 0;
+  let sumR = 0;
+  let sumG = 0;
+  let sumB = 0;
 
   for (let y = 0; y < th; y++) {
     for (let x = 0; x < tw; x++) {
       const i = (y * tw + x) * 4;
-      const isFg = Math.abs(lum(i) - bg) > 0.12;
-      mask.push(isFg);
-      if (isFg) {
-        fg++;
-        if (y < th / 2) upper++;
-        else lower++;
+      const r = data.data[i];
+      const g = data.data[i + 1];
+      const b = data.data[i + 2];
+      if (isWoodLike(r, g, b)) {
+        woodMask[y * tw + x] = true;
+        woodCount++;
+        sumR += r;
+        sumG += g;
+        sumB += b;
         minX = Math.min(minX, x);
         maxX = Math.max(maxX, x);
         minY = Math.min(minY, y);
@@ -337,64 +372,340 @@ function analyzeSilhouette(canvas: HTMLCanvasElement): SilhouetteMetrics {
     }
   }
 
-  if (fg < tw * th * 0.02) {
+  // If wood mask too sparse, fall back to contrast blob vs border median
+  if (woodCount < tw * th * 0.008) {
+    const lum = (x: number, y: number) => {
+      const i = (y * tw + x) * 4;
+      return (data.data[i] * 0.299 + data.data[i + 1] * 0.587 + data.data[i + 2] * 0.114) / 255;
+    };
+    const border: number[] = [];
+    for (let x = 0; x < tw; x++) {
+      border.push(lum(x, 0), lum(x, th - 1));
+    }
+    for (let y = 0; y < th; y++) {
+      border.push(lum(0, y), lum(tw - 1, y));
+    }
+    border.sort((a, b) => a - b);
+    const bg = border[Math.floor(border.length / 2)];
+    minX = tw;
+    minY = th;
+    maxX = 0;
+    maxY = 0;
+    woodCount = 0;
+    for (let y = 0; y < th; y++) {
+      for (let x = 0; x < tw; x++) {
+        const d = Math.abs(lum(x, y) - bg);
+        if (d > 0.18) {
+          woodMask[y * tw + x] = true;
+          woodCount++;
+          minX = Math.min(minX, x);
+          maxX = Math.max(maxX, x);
+          minY = Math.min(minY, y);
+          maxY = Math.max(maxY, y);
+        }
+      }
+    }
+  }
+
+  if (woodCount < 20 || maxX <= minX || maxY <= minY) {
     return fallback;
   }
 
-  const rowEdge = new Array(th).fill(0);
-  for (let y = 1; y < th - 1; y++) {
-    for (let x = 0; x < tw; x++) {
-      const a = mask[y * tw + x];
-      const b = mask[(y - 1) * tw + x];
-      const c = mask[(y + 1) * tw + x];
-      if (a !== b || a !== c) rowEdge[y]++;
+  // Shrink bbox to densest wood column band (reject arms/people around shelf)
+  const colDensity = new Array(tw).fill(0);
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      if (woodMask[y * tw + x]) colDensity[x]++;
     }
   }
-  let hPeaks = 0;
-  for (let y = 2; y < th - 2; y++) {
-    if (rowEdge[y] > tw * 0.08 && rowEdge[y] > rowEdge[y - 1] && rowEdge[y] >= rowEdge[y + 1]) {
-      hPeaks++;
+  const colH = maxY - minY + 1;
+  let c0 = minX;
+  let c1 = maxX;
+  while (c0 < c1 && colDensity[c0] < colH * 0.12) c0++;
+  while (c1 > c0 && colDensity[c1] < colH * 0.12) c1--;
+  // Prefer contiguous high-density core for small handheld shelves
+  let bestL = c0;
+  let bestR = c1;
+  let bestScore = -1;
+  const win = Math.max(8, Math.round((c1 - c0 + 1) * 0.35));
+  for (let left = c0; left <= c1 - win; left++) {
+    let score = 0;
+    for (let x = left; x < left + win; x++) score += colDensity[x];
+    if (score > bestScore) {
+      bestScore = score;
+      bestL = left;
+      bestR = left + win - 1;
     }
   }
-  hPeaks = Math.min(5, Math.max(1, Math.floor(hPeaks / 3)));
+  // Expand a bit around densest window while density holds
+  while (bestL > c0 && colDensity[bestL - 1] > colH * 0.15) bestL--;
+  while (bestR < c1 && colDensity[bestR + 1] > colH * 0.15) bestR++;
+
+  minX = bestL;
+  maxX = bestR;
+
+  const rowDensity = new Array(th).fill(0);
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      if (woodMask[y * tw + x]) rowDensity[y]++;
+    }
+  }
+  const rowW = maxX - minX + 1;
+  while (minY < maxY && rowDensity[minY] < rowW * 0.1) minY++;
+  while (maxY > minY && rowDensity[maxY] < rowW * 0.1) maxY--;
 
   const bw = Math.max(1, maxX - minX + 1);
   const bh = Math.max(1, maxY - minY + 1);
+  const aspect = bw / bh;
+
+  // Horizontal shelf bands: rows with high wood density (planks) vs hollow cavities
+  const bandScores: number[] = [];
+  for (let y = minY; y <= maxY; y++) {
+    let solid = 0;
+    for (let x = minX; x <= maxX; x++) {
+      if (woodMask[y * tw + x]) solid++;
+    }
+    bandScores.push(solid / bw);
+  }
+
+  const peaks: number[] = [];
+  for (let i = 2; i < bandScores.length - 2; i++) {
+    const s = bandScores[i];
+    if (
+      s > 0.45 &&
+      s >= bandScores[i - 1] &&
+      s >= bandScores[i + 1] &&
+      s >= bandScores[i - 2] &&
+      s >= bandScores[i + 2]
+    ) {
+      const absY = minY + i;
+      const norm = (absY - minY) / bh;
+      // merge nearby peaks
+      if (peaks.length === 0 || Math.abs(peaks[peaks.length - 1] - norm) > 0.08) {
+        peaks.push(norm);
+      }
+    }
+  }
+
+  // Side panel strength: vertical edges of bbox should be denser than center cavities
+  let leftEdge = 0;
+  let rightEdge = 0;
+  let centerHollow = 0;
+  const midX0 = Math.floor(minX + bw * 0.35);
+  const midX1 = Math.floor(minX + bw * 0.65);
+  for (let y = minY; y <= maxY; y++) {
+    if (woodMask[y * tw + minX] || woodMask[y * tw + Math.min(maxX, minX + 1)]) leftEdge++;
+    if (woodMask[y * tw + maxX] || woodMask[y * tw + Math.max(minX, maxX - 1)]) rightEdge++;
+    let hollow = 0;
+    for (let x = midX0; x <= midX1; x++) {
+      if (!woodMask[y * tw + x]) hollow++;
+    }
+    centerHollow += hollow / Math.max(1, midX1 - midX0 + 1);
+  }
+  const sidePanelStrength =
+    (leftEdge / bh + rightEdge / bh) / 2;
+  const openFront = centerHollow / bh > 0.35;
+
+  // Classify topology
+  let topology: FurnitureTopology = 'unknown';
+  const interiorShelves = peaks.filter((p) => p > 0.12 && p < 0.88);
+  if (aspect < 1.05 && sidePanelStrength > 0.35 && (interiorShelves.length >= 1 || openFront)) {
+    topology = 'open_shelf';
+  } else if (aspect > 1.2) {
+    topology = 'table';
+  } else if (!openFront && aspect < 0.9) {
+    topology = 'closed_cabinet';
+  } else if (aspect >= 0.85 && aspect <= 1.15) {
+    topology = 'modular';
+  } else {
+    topology = openFront ? 'open_shelf' : 'unknown';
+  }
+
+  // Force open shelf when we clearly see 2+ plank bands + sides (handheld bookshelf demo)
+  if (peaks.length >= 2 && sidePanelStrength > 0.3 && aspect < 1.2) {
+    topology = 'open_shelf';
+  }
+
+  let hPeaks = interiorShelves.length;
+  if (topology === 'open_shelf') {
+    // Typical small open shelf: base + mid + top → 1 interior shelf if 3 bands, else use peaks
+    if (peaks.length >= 3) hPeaks = Math.max(1, peaks.length - 2);
+    else if (peaks.length === 2) hPeaks = 1;
+    else hPeaks = Math.max(1, hPeaks);
+    hPeaks = Math.min(4, hPeaks);
+  }
+
+  const woodTone =
+    woodCount > 0
+      ? rgbToHex(sumR / woodCount, sumG / woodCount, sumB / woodCount)
+      : '#d4a373';
+
+  let upper = 0;
+  let lower = 0;
+  let fg = 0;
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      if (!woodMask[y * tw + x]) continue;
+      fg++;
+      if (y < minY + bh / 2) upper++;
+      else lower++;
+    }
+  }
 
   return {
-    aspect: bw / bh,
-    fill: fg / (tw * th),
+    aspect,
+    fill: woodCount / (tw * th),
     upperMass: upper / Math.max(1, fg),
     lowerMass: lower / Math.max(1, fg),
     hPeaks,
+    shelfBands: peaks.length ? peaks : [0.12, 0.5, 0.88],
     bbox: {
       x: minX / tw,
       y: minY / th,
       w: bw / tw,
       h: bh / th,
     },
+    topology,
+    woodTone,
+    openFront,
+    sidePanelStrength,
+  };
+}
+
+function buildOpenShelf(m: SilhouetteMetrics): {
+  furnitureName: string;
+  primitives: ScannedPrimitive[];
+} {
+  const parts: ScannedPrimitive[] = [];
+  const wood = m.woodTone || '#d4a373';
+  const woodDark = '#b8956a';
+  const sb = m.bbox;
+
+  // Compact handheld open bookshelf proportions (~mm)
+  // Prefer fused multi-view dims when available
+  const spanW = m.dimsMm?.width ?? Math.round(280 + m.bbox.w * 220);
+  const spanH = m.dimsMm?.height ?? Math.round(320 + m.bbox.h * 280);
+  const depth = m.dimsMm?.depth ?? Math.round(140 + m.bbox.w * 80);
+  const boardT = 12;
+  const sideT = 14;
+
+  const bands = [...m.shelfBands].sort((a, b) => a - b);
+  // Ensure top / mid / bottom
+  let levels: number[];
+  if (bands.length >= 3) {
+    levels = [bands[0], ...bands.slice(1, -1).slice(0, m.hPeaks), bands[bands.length - 1]];
+  } else if (bands.length === 2) {
+    levels = [0.08, (bands[0] + bands[1]) / 2, 0.92];
+  } else {
+    // Classic 3-tier: top, middle, bottom
+    levels = [0.08, 0.5, 0.92];
+  }
+  // Deduplicate and clamp to 3–4 horizontal boards for this class
+  levels = levels.filter((v, i, a) => i === 0 || Math.abs(v - a[i - 1]) > 0.1);
+  if (levels.length < 3) levels = [0.08, 0.5, 0.92];
+  if (levels.length > 4) {
+    levels = [levels[0], levels[Math.floor(levels.length / 2)], levels[levels.length - 1]];
+  }
+
+  const yFromNorm = (norm: number) => Math.round(spanH * (1 - norm));
+
+  // Bottom
+  const yBot = boardT / 2;
+  parts.push(
+    prim('shelf-bottom', 'Base_Inferior', 'bottom', v(0, yBot, 0), v(spanW, boardT, depth), wood, 0.93, {
+      x: sb.x,
+      y: sb.y + sb.h * 0.88,
+      width: sb.w,
+      height: sb.h * 0.1,
+    })
+  );
+
+  // Top
+  const yTop = spanH - boardT / 2;
+  parts.push(
+    prim('shelf-top', 'Tablero_Superior', 'top', v(0, yTop, 0), v(spanW, boardT, depth), wood, 0.94, {
+      x: sb.x,
+      y: sb.y,
+      width: sb.w,
+      height: sb.h * 0.1,
+    })
+  );
+
+  // Interior shelves (skip first/last if they map to top/bottom)
+  const interior = levels.filter((n) => n > 0.18 && n < 0.82);
+  const shelfNorms = interior.length ? interior : [0.5];
+  shelfNorms.forEach((norm, i) => {
+    const y = Math.max(boardT * 2, Math.min(spanH - boardT * 2, yFromNorm(norm)));
+    parts.push(
+      prim(
+        `shelf-mid-${i + 1}`,
+        shelfNorms.length === 1 ? 'Balda_Central' : `Balda_${i + 1}`,
+        'shelf',
+        v(0, y, 0),
+        v(spanW - sideT * 2 - 4, boardT, depth - 8),
+        woodDark,
+        0.91,
+        {
+          x: sb.x + sb.w * 0.12,
+          y: sb.y + sb.h * norm - sb.h * 0.03,
+          width: sb.w * 0.76,
+          height: sb.h * 0.06,
+        }
+      )
+    );
+  });
+
+  // Side panels — full height open rack (no back panel)
+  parts.push(
+    prim(
+      'shelf-left',
+      'Lateral_Izq',
+      'side',
+      v(-spanW / 2 + sideT / 2, spanH / 2, 0),
+      v(sideT, spanH, depth),
+      wood,
+      0.92,
+      { x: sb.x, y: sb.y, width: sb.w * 0.12, height: sb.h }
+    ),
+    prim(
+      'shelf-right',
+      'Lateral_Der',
+      'side',
+      v(spanW / 2 - sideT / 2, spanH / 2, 0),
+      v(sideT, spanH, depth),
+      wood,
+      0.92,
+      { x: sb.x + sb.w * 0.88, y: sb.y, width: sb.w * 0.12, height: sb.h }
+    )
+  );
+
+  return {
+    furnitureName: OPEN_SHELF_NAME,
+    primitives: normalizeToGroundPlane(parts),
   };
 }
 
 /**
- * Universal deconstruction: same pipeline for any furniture photo (no preset catalog).
+ * Universal deconstruction: topology-aware pipeline (open shelf, table, cabinet…).
  */
 export function deconstructGenericFromMetrics(m: SilhouetteMetrics): {
   furnitureName: string;
   primitives: ScannedPrimitive[];
 } {
+  if (m.topology === 'open_shelf') {
+    return buildOpenShelf(m);
+  }
+
   const parts: ScannedPrimitive[] = [];
-  const tones = ['#d4a373', '#c4b896', '#b8956a', '#8b6914', '#e8dcc8', '#cbb892'];
+  const tones = [m.woodTone || '#d4a373', '#c4b896', '#b8956a', '#8b6914', '#e8dcc8', '#cbb892'];
   let idx = 0;
   const tone = () => tones[idx++ % tones.length];
 
-  const spanW = Math.round(400 + m.fill * 500 + m.bbox.w * 400);
-  const spanH = Math.round(350 + m.bbox.h * 1200);
-  const depth = Math.round(280 + m.fill * 180);
-
+  const spanW = m.dimsMm?.width ?? Math.round(400 + m.fill * 500 + m.bbox.w * 400);
+  const spanH = m.dimsMm?.height ?? Math.round(350 + m.bbox.h * 1200);
+  const depth = m.dimsMm?.depth ?? Math.round(280 + m.fill * 180);
   const sb = m.bbox;
 
-  // Base panel (always)
   parts.push(
     prim(
       `gen-base`,
@@ -408,8 +719,8 @@ export function deconstructGenericFromMetrics(m: SilhouetteMetrics): {
     )
   );
 
-  const isWide = m.aspect > 1.15;
-  const isTall = m.aspect < 0.85;
+  const isWide = m.topology === 'table' || m.aspect > 1.15;
+  const isTall = m.topology === 'closed_cabinet' || m.aspect < 0.85;
 
   if (isWide) {
     const topY = Math.round(spanH * 0.85);
@@ -481,7 +792,7 @@ export function deconstructGenericFromMetrics(m: SilhouetteMetrics): {
         height: sb.h * 0.75,
       })
     );
-    for (let s = 1; s <= m.hPeaks; s++) {
+    for (let s = 1; s <= Math.max(1, m.hPeaks); s++) {
       const y = Math.round((h * s) / (m.hPeaks + 1));
       parts.push(
         prim(
@@ -502,6 +813,7 @@ export function deconstructGenericFromMetrics(m: SilhouetteMetrics): {
       );
     }
   } else {
+    // modular fallback without vertical divider when openFront
     const h = Math.round(spanH * 0.85);
     parts.push(
       prim('gen-left', 'Lateral_Izq', 'side', v(-spanW / 2 + 9, h / 2, 0), v(18, h, depth), tone(), 0.88, {
@@ -522,26 +834,20 @@ export function deconstructGenericFromMetrics(m: SilhouetteMetrics): {
         width: sb.w,
         height: sb.h * 0.08,
       }),
-      prim('gen-mid-h', 'Divisor_Horizontal', 'shelf', v(0, h / 2, 0), v(spanW - 48, 16, depth - 20), tone(), 0.86, {
+      prim('gen-mid-h', 'Balda_Central', 'shelf', v(0, h / 2, 0), v(spanW - 48, 16, depth - 20), tone(), 0.86, {
         x: sb.x + sb.w * 0.15,
         y: sb.y + sb.h * 0.45,
         width: sb.w * 0.7,
         height: sb.h * 0.06,
-      }),
-      prim('gen-mid-v', 'Divisor_Vertical', 'frame', v(0, h / 2, 0), v(16, h - 40, depth - 20), tone(), 0.85, {
-        x: sb.x + sb.w * 0.45,
-        y: sb.y + sb.h * 0.15,
-        width: sb.w * 0.1,
-        height: sb.h * 0.7,
       })
     );
-    if (m.upperMass > 0.55) {
+    if (!m.openFront) {
       parts.push(
-        prim('gen-drawer', 'Modulo_Cajon', 'drawer', v(0, h * 0.35, depth * 0.15), v(spanW * 0.55, 110, depth * 0.75), tone(), 0.82, {
-          x: sb.x + sb.w * 0.22,
-          y: sb.y + sb.h * 0.35,
-          width: sb.w * 0.56,
-          height: sb.h * 0.18,
+        prim('gen-mid-v', 'Divisor_Vertical', 'frame', v(0, h / 2, 0), v(16, h - 40, depth - 20), tone(), 0.85, {
+          x: sb.x + sb.w * 0.45,
+          y: sb.y + sb.h * 0.15,
+          width: sb.w * 0.1,
+          height: sb.h * 0.7,
         })
       );
     }
@@ -561,32 +867,112 @@ export function deconstructFromCanvas(canvas: HTMLCanvasElement): {
   return deconstructGenericFromMetrics(metrics);
 }
 
-/** Neutral canvas for first paint (same generic path as any capture). */
+export interface MultiViewCapture {
+  id: ScanViewId;
+  canvas: HTMLCanvasElement;
+}
+
+/**
+ * Fuse front / side / top silhouettes into one metric set with real depth.
+ * Front → height, width, shelves; Side → depth; Top → footprint confirmation.
+ */
+export function fuseMultiViewMetrics(views: MultiViewCapture[]): SilhouetteMetrics {
+  const byId = new Map(views.map((v) => [v.id, analyzeSilhouette(v.canvas)]));
+  const front = byId.get('front');
+  const side = byId.get('side');
+  const top = byId.get('top');
+  const primary = front || side || top || analyzeSilhouette(views[0].canvas);
+
+  const REF_PX = 0.35; // bbox fraction that maps to ~reference furniture size
+  const frontWmm = front ? Math.round(260 + (front.bbox.w / REF_PX) * 100) : undefined;
+  const frontHmm = front ? Math.round(300 + (front.bbox.h / REF_PX) * 120) : undefined;
+  // Side view: horizontal extent ≈ depth, vertical ≈ height
+  const sideDmm = side ? Math.round(120 + (side.bbox.w / REF_PX) * 90) : undefined;
+  const sideHmm = side ? Math.round(300 + (side.bbox.h / REF_PX) * 120) : undefined;
+  // Top view: axes ≈ width × depth
+  const topWmm = top ? Math.round(260 + (top.bbox.w / REF_PX) * 100) : undefined;
+  const topDmm = top ? Math.round(120 + (top.bbox.h / REF_PX) * 90) : undefined;
+
+  const width = Math.round(
+    Math.max(frontWmm || 0, topWmm || 0, 280) || 320
+  );
+  const height = Math.round(
+    ((frontHmm || 0) + (sideHmm || 0)) / (frontHmm && sideHmm ? 2 : 1) || frontHmm || sideHmm || 380
+  );
+  const depth = Math.round(
+    Math.max(sideDmm || 0, topDmm || 0, 130) || 160
+  );
+
+  const shelfSource = front || primary;
+  const topologies = [front, side, top].filter(Boolean).map((m) => m!.topology);
+  const topology: FurnitureTopology = topologies.includes('open_shelf')
+    ? 'open_shelf'
+    : topologies.includes('table')
+      ? 'table'
+      : topologies.includes('closed_cabinet')
+        ? 'closed_cabinet'
+        : primary.topology;
+
+  const openFront = [front, side, top].some((m) => m?.openFront) || primary.openFront;
+  const sidePanelStrength = Math.max(
+    front?.sidePanelStrength || 0,
+    side?.sidePanelStrength || 0,
+    top?.sidePanelStrength || 0,
+    primary.sidePanelStrength
+  );
+
+  return {
+    aspect: width / Math.max(1, height),
+    fill: primary.fill,
+    upperMass: primary.upperMass,
+    lowerMass: primary.lowerMass,
+    hPeaks: shelfSource.hPeaks,
+    shelfBands: shelfSource.shelfBands,
+    bbox: front?.bbox || primary.bbox,
+    topology,
+    woodTone: front?.woodTone || primary.woodTone,
+    openFront,
+    sidePanelStrength,
+    dimsMm: {
+      width: Math.min(900, Math.max(200, width)),
+      height: Math.min(1200, Math.max(220, height)),
+      depth: Math.min(600, Math.max(100, depth)),
+    },
+  };
+}
+
+export function deconstructFromMultiView(views: MultiViewCapture[]): {
+  furnitureName: string;
+  primitives: ScannedPrimitive[];
+} {
+  if (views.length === 0) {
+    return deconstructGenericPlaceholder();
+  }
+  if (views.length === 1) {
+    return deconstructFromCanvas(views[0].canvas);
+  }
+  const fused = fuseMultiViewMetrics(views);
+  return deconstructGenericFromMetrics(fused);
+}
+
+/** Default open-shelf placeholder matching handheld 3-tier wood rack. */
 export function deconstructGenericPlaceholder(): {
   furnitureName: string;
   primitives: ScannedPrimitive[];
 } {
-  if (typeof document === 'undefined') {
-    return deconstructGenericFromMetrics({
-      aspect: 1,
-      fill: 0.5,
-      upperMass: 0.5,
-      lowerMass: 0.5,
-      hPeaks: 2,
-      bbox: { x: 0.2, y: 0.15, w: 0.6, h: 0.7 },
-    });
-  }
-  const c = document.createElement('canvas');
-  c.width = 640;
-  c.height = 480;
-  const ctx = c.getContext('2d');
-  if (ctx) {
-    ctx.fillStyle = '#aeb4bc';
-    ctx.fillRect(0, 0, 640, 480);
-    ctx.fillStyle = '#6d5844';
-    ctx.fillRect(120, 80, 400, 340);
-  }
-  return deconstructFromCanvas(c);
+  return deconstructGenericFromMetrics({
+    aspect: 0.72,
+    fill: 0.1,
+    upperMass: 0.48,
+    lowerMass: 0.52,
+    hPeaks: 1,
+    shelfBands: [0.1, 0.5, 0.9],
+    bbox: { x: 0.38, y: 0.28, w: 0.28, h: 0.42 },
+    topology: 'open_shelf',
+    woodTone: '#d4b896',
+    openFront: true,
+    sidePanelStrength: 0.75,
+  });
 }
 
 /** AABB distance between two OBBs (axis-aligned approximation). */

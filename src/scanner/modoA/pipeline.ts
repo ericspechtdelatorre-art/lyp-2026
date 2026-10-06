@@ -10,7 +10,9 @@ import {
 } from './codeSynthesizer.ts';
 import {
   deconstructFromCanvas,
+  deconstructFromMultiView,
   deconstructGenericPlaceholder,
+  MultiViewCapture,
 } from './geometricDeconstruction.ts';
 import { ModoAPipelineResult } from './spatialTypes.ts';
 
@@ -25,7 +27,6 @@ function buildInventory(graph: ReturnType<typeof resolveAssemblyHierarchy>): Rec
 function buildReverseSteps(
   graph: ReturnType<typeof resolveAssemblyHierarchy>
 ): ModoAPipelineResult['reverseSteps'] {
-  // Reverse of assembly = disassembly order
   return [...graph.steps]
     .reverse()
     .map((s, i) => ({
@@ -38,17 +39,24 @@ function buildReverseSteps(
 /** Initial / default scan — universal pipeline, not tied to a catalog model. */
 export function runModoAGeneric(): ModoAPipelineResult {
   const { furnitureName, primitives } = deconstructGenericPlaceholder();
-  return finalize(furnitureName, primitives);
+  return finalize(furnitureName, primitives, 0);
 }
 
 export function runModoAFromCanvas(canvas: HTMLCanvasElement): ModoAPipelineResult {
   const { furnitureName, primitives } = deconstructFromCanvas(canvas);
-  return finalize(furnitureName, primitives);
+  return finalize(furnitureName, primitives, 1);
+}
+
+/** Multi-view webcam reconstruction (front + side + top). */
+export function runModoAFromMultiView(views: MultiViewCapture[]): ModoAPipelineResult {
+  const { furnitureName, primitives } = deconstructFromMultiView(views);
+  return finalize(furnitureName, primitives, views.length);
 }
 
 function finalize(
   furnitureName: string,
-  primitives: import('./spatialTypes.ts').ScannedPrimitive[]
+  primitives: import('./spatialTypes.ts').ScannedPrimitive[],
+  viewCount = 1
 ): ModoAPipelineResult {
   let graph = resolveAssemblyHierarchy(furnitureName, primitives);
   const collisionFlags = detectAccessCollisions(graph);
@@ -63,6 +71,7 @@ function finalize(
     reverseSteps: buildReverseSteps(graph),
     inventoryRemaining: buildInventory(graph),
     collisionFlags,
+    viewCount,
   };
 }
 
