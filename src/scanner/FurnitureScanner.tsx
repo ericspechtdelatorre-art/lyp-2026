@@ -16,6 +16,7 @@ import {
   Code2,
   RotateCcw,
   Aperture,
+  Crosshair,
 } from 'lucide-react';
 import { AssemblyTwinViewport } from './modoA/AssemblyTwinViewport.tsx';
 import {
@@ -23,8 +24,16 @@ import {
   runModoAFromCanvas,
   runModoAFromMultiView,
   runModoAGeneric,
+  runModoAFromDetection,
 } from './modoA/pipeline.ts';
-import { ModoAPipelineResult, ScanViewId } from './modoA/spatialTypes.ts';
+import { analyzeFrameMetrics, CalibrationConfig } from './cvDetector.ts';
+import {
+  DetectedObjectMetrics,
+  ModoAPipelineResult,
+  RoiMode,
+  RoiRect,
+  ScanViewId,
+} from './modoA/spatialTypes.ts';
 
 interface FurnitureScannerProps {
   onTransferCode: (code: string) => void;
@@ -37,11 +46,192 @@ const SCAN_VIEWS: Array<{ id: ScanViewId; label: string; prompt: string }> = [
   { id: 'top', label: 'Arriba', prompt: 'Desde arriba o 3/4 superior' },
 ];
 
-interface CapturedView {
+interface CapturedViewLocal {
   id: ScanViewId;
   canvas: HTMLCanvasElement;
   thumbnail: string;
+  metrics?: import('./modoA/spatialTypes').DetectedObjectMetrics;
 }
+
+// ── EMA Smoothing ───────────────────────────────────────────────────────────
+
+const EMA_ALPHA = 0.25;
+
+function lerpN(a: number, b: number): number {
+  return Math.round((a + EMA_ALPHA * (b - a)) * 100) / 100;
+}
+
+function smoothMetrics(
+  prev: DetectedObjectMetrics | null,
+  curr: DetectedObjectMetrics
+): DetectedObjectMetrics {
+  if (!prev) return curr;
+  return {
+    ...curr,
+    dimensions: {
+      widthMm: lerpN(prev.dimensions.widthMm, curr.dimensions.widthMm),
+      heightMm: lerpN(prev.dimensions.heightMm, curr.dimensions.heightMm),
+      thicknessMm: lerpN(prev.dimensions.thicknessMm, curr.dimensions.thicknessMm),
+      volumeCm3: lerpN(prev.dimensions.volumeCm3, curr.dimensions.volumeCm3),
+      orientationDeg: lerpN(prev.dimensions.orientationDeg, curr.dimensions.orientationDeg),
+    },
+    density: {
+      ...curr.density,
+      structuralRatio: lerpN(prev.density.structuralRatio, curr.density.structuralRatio),
+      materialDensityGcm3: lerpN(prev.density.materialDensityGcm3, curr.density.materialDensityGcm3),
+      effectiveDensityGcm3: lerpN(prev.density.effectiveDensityGcm3, curr.density.effectiveDensityGcm3),
+      estimatedMassGrams: Math.round(lerpN(prev.density.estimatedMassGrams, curr.density.estimatedMassGrams)),
+    },
+    centroid: {
+      x: lerpN(prev.centroid.x, curr.centroid.x),
+      y: lerpN(prev.centroid.y, curr.centroid.y),
+    },
+    obbCorners: curr.obbCorners.map((c, i) =>
+      prev.obbCorners[i]
+        ? { x: lerpN(prev.obbCorners[i].x, c.x), y: lerpN(prev.obbCorners[i].y, c.y) }
+        : c
+    ),
+    principalAxis: {
+      start: {
+        x: lerpN(prev.principalAxis.start.x, curr.principalAxis.start.x),
+        y: lerpN(prev.principalAxis.start.y, curr.principalAxis.start.y),
+      },
+      end: {
+        x: lerpN(prev.principalAxis.end.x, curr.principalAxis.end.x),
+        y: lerpN(prev.principalAxis.end.y, curr.principalAxis.end.y),
+      },
+    },
+  };
+}
+
+// ── ROI Helpers ──────────────────────────────────────────────────────────────
+
+function computeRoi(canvasW: number, canvasH: number, mode: RoiMode): RoiRect {
+  let wFrac: number, hFrac: number;
+  switch (mode) {
+    case 'horizontal': wFrac = 0.75; hFrac = 0.45; break;
+    case 'vertical':   wFrac = 0.35; hFrac = 0.80; break;
+    default:           wFrac = 0.70; hFrac = 0.65; break;
+  }
+  const rw = Math.floor(canvasW * wFrac);
+  const rh = Math.floor(canvasH * hFrac);
+  return {
+    x: Math.floor((canvasW - rw) / 2),
+    y: Math.floor((canvasH - rh) / 2),
+    width: rw,
+    height: rh,
+  };
+}
+
+const ROI_MODE_LABELS: Record<RoiMode, string> = {
+  horizontal: '━ Tablón/Balda',
+  vertical: '┃ Columna/Pata',
+  libre: '☐ Libre (Mueble)',
+};
+
+// ── HUD Drawing ─────────────────────────────────────────────────────────────
+
+function drawRoiFrame(ctx: CanvasRenderingContext2D, roi: RoiRect) {
+  const { x, y, width, height } = roi;
+  const cornerLen = Math.min(30, width * 0.08, height * 0.08);
+
+  // Dimmed outside area
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  ctx.fillRect(0, 0, ctx.canvas.width, y);
+  ctx.fillRect(0, y + height, ctx.canvas.width, ctx.canvas.height - y - height);
+  ctx.fillRect(0, y, x, height);
+  ctx.fillRect(x + width, y, ctx.canvas.width - x - width, height);
+
+  // Corner brackets
+  ctx.strokeStyle = '#ffdb00';
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'square';
+  const corners: [number, number, number, number][] = [
+    [x, y, 1, 1], [x + width, y, -1, 1],
+    [x, y + height, 1, -1], [x + width, y + height, -1, -1],
+  ];
+  for (const [cx, cy, dx, dy] of corners) {
+    ctx.beginPath();
+    ctx.moveTo(cx + cornerLen * dx, cy);
+    ctx.lineTo(cx, cy);
+    ctx.lineTo(cx, cy + cornerLen * dy);
+    ctx.stroke();
+  }
+}
+
+function drawHud(ctx: CanvasRenderingContext2D, m: DetectedObjectMetrics, roi: RoiRect) {
+  const cw = ctx.canvas.width;
+
+
+  // ── Holographic fill ──
+  if (m.contourPoints.length > 2) {
+    ctx.fillStyle = 'rgba(0, 255, 204, 0.12)';
+    ctx.beginPath();
+    m.contourPoints.forEach((pt, i) => i === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y));
+    ctx.fill();
+    
+    ctx.strokeStyle = '#00ffcc';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+  }
+
+  // ── Wireframe Mesh ──
+  if (m.wireframeMesh) {
+    ctx.strokeStyle = 'rgba(0, 229, 255, 0.65)';
+    ctx.lineWidth = 1.5;
+    ctx.fillStyle = '#00e5ff';
+    
+    // Ribbons (costillas)
+    m.wireframeMesh.ribbons.forEach(r => {
+      ctx.beginPath();
+      ctx.moveTo(r.top.x, r.top.y);
+      ctx.lineTo(r.bottom.x, r.bottom.y);
+      ctx.stroke();
+      ctx.fillRect(r.top.x - 1.5, r.top.y - 1.5, 3, 3);
+      ctx.fillRect(r.bottom.x - 1.5, r.bottom.y - 1.5, 3, 3);
+    });
+
+    // Spines (nervios)
+    m.wireframeMesh.spines.forEach(s => {
+      ctx.beginPath();
+      s.forEach((pt, i) => i === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y));
+      ctx.stroke();
+      s.forEach(pt => ctx.fillRect(pt.x - 1.5, pt.y - 1.5, 3, 3));
+    });
+  }
+  // ── Telemetry label ──
+  const { widthMm, heightMm, thicknessMm } = m.dimensions;
+  const { effectiveDensityGcm3, structuralRatio, materialClass, estimatedMassGrams } = m.density;
+  const classLabel = m.classification === 'TABLON' ? 'TABLÓN / PIEZA ÚNICA'
+    : m.classification === 'LISTON' ? 'LISTÓN / PATA'
+    : m.classification === 'PANEL' ? 'PANEL'
+    : m.classification === 'ESTANTERIA' ? 'ESTANTERÍA'
+    : 'MUEBLE';
+
+  const labelX = roi.x + 8;
+  const labelY = roi.y + roi.height + 18;
+  const lines = [
+    `Tipo: ${classLabel}`,
+    `Tamaño: ${widthMm} × ${heightMm} mm | Grosor: ${thicknessMm} mm`,
+    `Densidad: ${effectiveDensityGcm3} g/cm³ | Solidez: ${Math.round(structuralRatio * 100)}% | ${materialClass}`,
+    `Masa: ~${estimatedMassGrams} g | Huecos: ${m.internalHoles}`,
+  ];
+
+  const lineH = 16;
+  const boxH = lines.length * lineH + 10;
+  const boxW = Math.min(380, cw - labelX - 10);
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.82)';
+  ctx.fillRect(labelX - 4, labelY - lineH, boxW, boxH);
+
+  ctx.font = '11px monospace';
+  lines.forEach((line, i) => {
+    ctx.fillStyle = i === 0 ? '#00ffcc' : '#ffffff';
+    ctx.fillText(line, labelX, labelY + i * lineH);
+  });
+}
+
+// ── Component ───────────────────────────────────────────────────────────────
 
 function grabFrameFromVideo(video: HTMLVideoElement): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
@@ -65,13 +255,118 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [transferred, setTransferred] = useState(false);
-  const [captures, setCaptures] = useState<CapturedView[]>([]);
+  const [captures, setCaptures] = useState<CapturedViewLocal[]>([]);
   const [activeViewIndex, setActiveViewIndex] = useState(0);
   const [flash, setFlash] = useState(false);
+  const [roiMode, setRoiMode] = useState<RoiMode>('libre');
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const metricsRef = useRef<DetectedObjectMetrics | null>(null);
+  const bgGrayRef = useRef<Uint8Array | null>(null);
+  const [metrics, setMetrics] = useState<DetectedObjectMetrics | null>(null);
+  const [mmPerPixel] = useState<number>(0.45);
+
+  // ── Live frame processing ──
+  const processVideoFrame = useCallback(() => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || video.readyState < 2) return;
+
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const roi = computeRoi(canvas.width, canvas.height, roiMode);
+    const frameData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    const rawDetection = analyzeFrameMetrics(
+      frameData,
+      { mmPerPixel, depthPerspectiveFactor: 1.15 },
+      roi,
+      bgGrayRef.current || undefined
+    );
+
+    // Draw ROI frame always
+    drawRoiFrame(ctx, roi);
+
+    if (rawDetection) {
+      const stabilized = smoothMetrics(metricsRef.current, rawDetection);
+      metricsRef.current = stabilized;
+      setMetrics(stabilized);
+      drawHud(ctx, stabilized, roi);
+    } else {
+      metricsRef.current = null;
+      setMetrics(null);
+      // "No object" label
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.font = '13px monospace';
+      ctx.fillText('Coloca el objeto dentro del marco', roi.x + 10, roi.y + roi.height / 2);
+    }
+  }, [mmPerPixel, roiMode]);
+
+  useEffect(() => {
+    if (!isLiveCamera) return;
+    let animId: number;
+    const loop = () => { processVideoFrame(); animId = requestAnimationFrame(loop); };
+    animId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(animId);
+  }, [isLiveCamera, processVideoFrame]);
+
+  // ── Calibrate background ──
+  const calibrateBackground = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2) return;
+    const tmpCanvas = document.createElement('canvas');
+    const w = video.videoWidth || 640;
+    const h = video.videoHeight || 480;
+    tmpCanvas.width = w;
+    tmpCanvas.height = h;
+    const tmpCtx = tmpCanvas.getContext('2d');
+    if (!tmpCtx) return;
+    tmpCtx.drawImage(video, 0, 0);
+    const data = tmpCtx.getImageData(0, 0, w, h);
+    const gray = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      const idx = i * 4;
+      gray[i] = Math.round(0.299 * data.data[idx] + 0.587 * data.data[idx + 1] + 0.114 * data.data[idx + 2]);
+    }
+    bgGrayRef.current = gray;
+  }, []);
+
+  // ── Analyze from live metrics ──
+  const analyzeFromLiveMetrics = useCallback(() => {
+    const m = metricsRef.current;
+    if (!m) return;
+    setAnalyzing(true);
+    setStage(1);
+    setTimeout(() => {
+      setStage(2);
+      setTimeout(() => {
+        setStage(3);
+        try {
+          const next = runModoAFromDetection(m);
+          setTimeout(() => {
+            setResult(next);
+            setHasCapture(true);
+            setExplosion(0.85);
+            setAssemblyStep(0);
+            setIsPlaying(false);
+            setStage(4);
+            setTimeout(() => setExplosion(0), 900);
+            setAnalyzing(false);
+          }, 150);
+        } catch {
+          setAnalyzing(false);
+        }
+      }, 200);
+    }, 200);
+  }, []);
 
   const inventory = useMemo(
     () => inventoryAtStep(result, assemblyStep),
@@ -86,25 +381,17 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
   const activeView = SCAN_VIEWS[Math.min(activeViewIndex, SCAN_VIEWS.length - 1)];
   const allViewsCaptured = SCAN_VIEWS.every((v) => captures.some((c) => c.id === v.id));
 
-  useEffect(() => {
-    onHighlightLine?.(activeLine);
-  }, [activeLine, onHighlightLine]);
+  useEffect(() => { onHighlightLine?.(activeLine); }, [activeLine, onHighlightLine]);
 
   useEffect(() => {
-    return () => {
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-    };
+    return () => { streamRef.current?.getTracks().forEach((t) => t.stop()); };
   }, []);
 
   useEffect(() => {
     if (!isLiveCamera || !streamRef.current || !videoRef.current) return;
     const video = videoRef.current;
-    if (video.srcObject !== streamRef.current) {
-      video.srcObject = streamRef.current;
-    }
-    void video.play().catch(() => {
-      /* muted autoplay */
-    });
+    if (video.srcObject !== streamRef.current) video.srcObject = streamRef.current;
+    void video.play().catch(() => {});
   }, [isLiveCamera]);
 
   const applyResult = useCallback((next: ModoAPipelineResult, fromCapture = true) => {
@@ -127,6 +414,7 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
     setIsLiveCamera(false);
+    bgGrayRef.current = null;
   }, []);
 
   const startCamera = async () => {
@@ -142,22 +430,8 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
     resetCaptures();
 
     const tryConstraints: MediaStreamConstraints[] = [
-      {
-        audio: false,
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-      },
-      {
-        audio: false,
-        video: {
-          facingMode: 'user',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-      },
+      { audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+      { audio: false, video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } },
       { audio: false, video: true },
     ];
 
@@ -169,23 +443,21 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
         setStage(1);
         setIsLiveCamera(true);
         return;
-      } catch (err) {
-        lastErr = err;
-      }
+      } catch (err) { lastErr = err; }
     }
 
     const name = lastErr instanceof DOMException ? lastErr.name : 'Error';
     const msg =
       name === 'NotAllowedError' || name === 'PermissionDeniedError'
-        ? 'Permiso de cámara denegado. Actívalo en Windows / Electron e inténtalo de nuevo.'
+        ? 'Permiso de cámara denegado.'
         : name === 'NotFoundError' || name === 'DevicesNotFoundError'
           ? 'No se encontró ninguna webcam conectada.'
-          : 'No se pudo abrir la webcam. Comprueba que no la esté usando otra app.';
+          : 'No se pudo abrir la webcam.';
     setCameraError(msg);
     alert(msg);
   };
 
-  const analyzeMultiView = async (views: CapturedView[]) => {
+  const analyzeMultiView = async (views: CapturedViewLocal[]) => {
     setAnalyzing(true);
     setStage(1);
     try {
@@ -193,15 +465,25 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
       setStage(2);
       await new Promise((r) => setTimeout(r, 200));
       setStage(3);
-      const next = runModoAFromMultiView(
-        views.map((v) => ({ id: v.id, canvas: v.canvas }))
-      );
+      
+      const fullViews = views.map(v => ({
+        id: v.id,
+        thumbnailDataUrl: v.thumbnail,
+        majorDimMm: Math.max(v.metrics?.dimensions.widthMm || 0, v.metrics?.dimensions.heightMm || 0),
+        minorDimMm: Math.min(v.metrics?.dimensions.widthMm || 0, v.metrics?.dimensions.heightMm || 0),
+        solidity: v.metrics?.structuralSolidity || 0,
+        holeCount: v.metrics?.internalHoles || 0,
+        textureDensityScore: 0,
+        materialDensityGcm3: v.metrics?.density.materialDensityGcm3 || 0
+      }));
+      const next = views.every(v => v.metrics) && views.length === 3 
+        ? (await import('./modoA/pipeline')).runModoAFromThreeViews(fullViews)
+        : (await import('./modoA/pipeline')).runModoAFromMultiView(views.map((v) => ({ id: v.id, canvas: v.canvas })));
+
       await new Promise((r) => setTimeout(r, 160));
       stopCamera();
       applyResult(next);
-    } finally {
-      setAnalyzing(false);
-    }
+    } finally { setAnalyzing(false); }
   };
 
   const captureCurrentView = async () => {
@@ -214,19 +496,17 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
     setFlash(true);
     window.setTimeout(() => setFlash(false), 160);
 
+    
+    const m = metricsRef.current;
     const nextCaptures = [
       ...captures.filter((c) => c.id !== view.id),
-      { id: view.id, canvas, thumbnail },
+      { id: view.id, canvas, thumbnail, metrics: m || undefined },
     ];
+
     setCaptures(nextCaptures);
 
     const nextIndex = activeViewIndex + 1;
-    if (nextIndex < SCAN_VIEWS.length) {
-      setActiveViewIndex(nextIndex);
-      return;
-    }
-
-    // Last view → auto analyze
+    if (nextIndex < SCAN_VIEWS.length) { setActiveViewIndex(nextIndex); return; }
     await analyzeMultiView(nextCaptures);
   };
 
@@ -253,11 +533,8 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
       stopCamera();
       resetCaptures();
       applyResult(next);
-    } catch {
-      alert('No se pudo analizar la imagen.');
-    } finally {
-      setAnalyzing(false);
-    }
+    } catch { alert('No se pudo analizar la imagen.'); }
+    finally { setAnalyzing(false); }
   };
 
   const handleTransfer = () => {
@@ -267,6 +544,8 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
   };
 
   const codeLines = result.sourceCode.split('\n');
+
+  const roiModes: RoiMode[] = ['horizontal', 'vertical', 'libre'];
 
   return (
     <div className="w-full h-full flex flex-col bg-[#0f1b13] overflow-hidden select-none text-[#e4eee6]">
@@ -278,10 +557,10 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
           </div>
           <div className="min-w-0">
             <h2 className="font-extrabold text-sm tracking-tight truncate">
-              Modo A · Mueble Ya Montado
+              Modo A · Escáner CV
             </h2>
             <p className="text-[11px] text-[#839d8b] truncate">
-              Captura multipunto (frente · lateral · arriba) → reconstrucción 3D → IkeaLang
+              Marco virtual ROI → PCA + Grosor + Densidad → Clasificación → IkeaLang
             </p>
           </div>
         </div>
@@ -293,7 +572,9 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
                 ? `Reconstruido desde ${result.viewCount} vistas`
                 : 'Captura analizada'
               : isLiveCamera
-                ? `Vistas ${captures.length}/3`
+                ? metrics
+                  ? `${metrics.classification} · ${metrics.dimensions.widthMm}×${metrics.dimensions.heightMm}mm`
+                  : 'Webcam activa'
                 : 'Esperando foto o webcam'}
           </span>
 
@@ -321,45 +602,66 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
             type="file"
             accept="image/*,video/*"
             className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void handleFileUpload(f);
-            }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFileUpload(f); }}
           />
 
           {isLiveCamera && (
             <>
+              {/* ROI mode selector */}
+              <div className="flex items-center gap-0.5 bg-[#1b2f21] rounded-lg border border-[#2b4832] overflow-hidden">
+                {roiModes.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setRoiMode(m)}
+                    className={`px-2 py-1 text-[10px] font-bold ${
+                      roiMode === m
+                        ? 'bg-[#ffdb00] text-[#0e1b12]'
+                        : 'text-[#88a38f] hover:text-white'
+                    }`}
+                  >
+                    {ROI_MODE_LABELS[m]}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={calibrateBackground}
+                className="px-2.5 py-1.5 bg-[#1d3324] border border-[#2b4832] hover:bg-[#254032] rounded-xl text-[10px] font-bold flex items-center gap-1"
+                title="Captura el fondo vacío para restar ruido"
+              >
+                <Crosshair size={12} /> Calibrar Fondo
+              </button>
+
+              <button
+                type="button"
+                disabled={analyzing || !metrics}
+                onClick={analyzeFromLiveMetrics}
+                className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 rounded-xl text-xs font-bold disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <Aperture size={14} />
+                {analyzing ? 'Analizando…' : 'Capturar y Analizar'}
+              </button>
+
               <button
                 type="button"
                 disabled={analyzing}
                 onClick={() => void captureCurrentView()}
-                className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 rounded-xl text-xs font-bold disabled:opacity-50 flex items-center gap-1.5"
+                className="px-3 py-1.5 bg-[#0058a3] hover:bg-[#004785] rounded-xl text-xs font-bold disabled:opacity-50 flex items-center gap-1.5"
               >
-                <Aperture size={14} />
-                {analyzing
-                  ? 'Analizando…'
-                  : allViewsCaptured
-                    ? 'Analizar 3D'
-                    : `Capturar ${activeView.label} (${activeViewIndex + 1}/3)`}
+                <Layers size={14} />
+                {allViewsCaptured ? 'Analizar 3D' : `Vista ${activeView.label} (${activeViewIndex + 1}/3)`}
               </button>
+
               {captures.length > 0 && (
                 <button
                   type="button"
                   disabled={analyzing}
                   onClick={resetCaptures}
                   className="px-2.5 py-1.5 bg-[#1d3324] border border-[#2b4832] hover:bg-[#254032] rounded-xl text-xs font-bold flex items-center gap-1"
-                  title="Empezar de nuevo"
                 >
-                  <RotateCcw size={12} /> Reiniciar
-                </button>
-              )}
-              {allViewsCaptured && !analyzing && (
-                <button
-                  type="button"
-                  onClick={() => void analyzeMultiView(captures)}
-                  className="px-3 py-1.5 bg-[#0058a3] hover:bg-[#004785] rounded-xl text-xs font-bold"
-                >
-                  Analizar 3D
+                  <RotateCcw size={12} /> Reset
                 </button>
               )}
             </>
@@ -372,15 +674,7 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
               transferred ? 'bg-emerald-600' : 'bg-[#0058a3] hover:bg-[#004785]'
             }`}
           >
-            {transferred ? (
-              <>
-                <Check size={14} /> Transferido
-              </>
-            ) : (
-              <>
-                <ArrowRight size={14} /> Al Taller
-              </>
-            )}
+            {transferred ? <><Check size={14} /> Transferido</> : <><ArrowRight size={14} /> Al Taller</>}
           </button>
         </div>
       </div>
@@ -404,27 +698,29 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
             }`}
           >
             <Icon size={12} />
-            <span>
-              S{n}: {label}
-            </span>
+            <span>S{n}: {label}</span>
           </button>
         ))}
-        {analyzing && (
-          <span className="ml-2 text-amber-300 animate-pulse">pipeline en curso…</span>
-        )}
+        {analyzing && <span className="ml-2 text-amber-300 animate-pulse">pipeline en curso…</span>}
       </div>
 
       {/* Workspace */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-0 overflow-hidden min-h-0">
         <div className="lg:col-span-7 flex flex-col border-r border-[#213825] min-h-0 relative">
           {isLiveCamera && (
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="absolute inset-0 w-full h-full object-cover z-10 bg-black"
-            />
+            <>
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="absolute inset-0 w-full h-full object-cover z-10 bg-black"
+              />
+              <canvas
+                ref={canvasRef}
+                className="absolute inset-0 w-full h-full object-cover z-[15] pointer-events-none"
+              />
+            </>
           )}
 
           {flash && (
@@ -436,55 +732,53 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] font-mono px-2 py-1 rounded bg-red-700/90 text-white flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                  WEBCAM · {activeViewIndex + 1}/3
+                  WEBCAM · ROI {ROI_MODE_LABELS[roiMode]}
+                  {bgGrayRef.current ? ' · BG ✓' : ''}
                 </span>
                 <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-black/70 text-[#ffdb00] border border-[#ffdb00]/30">
-                  Gira el mueble: {activeView.prompt.toUpperCase()}
+                  {captures.length > 0 ? `Vistas ${captures.length}/3 · ${activeView.prompt}` : 'Coloca el objeto en el marco'}
                 </span>
               </div>
 
               {/* Thumbnail strip */}
-              <div className="flex gap-2 pointer-events-auto">
-                {SCAN_VIEWS.map((v, i) => {
-                  const cap = captures.find((c) => c.id === v.id);
-                  const isActive = i === activeViewIndex;
-                  return (
+              {captures.length > 0 && (
+                <div className="flex gap-2 pointer-events-auto">
+                  {SCAN_VIEWS.map((v, i) => {
+                    const cap = captures.find((c) => c.id === v.id);
+                    const isActive = i === activeViewIndex;
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => setActiveViewIndex(i)}
+                        className={`relative w-20 h-14 rounded-lg overflow-hidden border-2 text-left ${
+                          isActive ? 'border-[#ffdb00]' : cap ? 'border-emerald-500/70' : 'border-white/20'
+                        }`}
+                      >
+                        {cap ? (
+                          <img src={cap.thumbnail} alt={v.label} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full bg-black/50 flex items-center justify-center text-[10px] font-mono text-white/70">
+                            {i + 1}. {v.label}
+                          </div>
+                        )}
+                        <span className="absolute bottom-0 inset-x-0 bg-black/70 text-[9px] text-center py-0.5">
+                          {v.label}{cap ? ' ✓' : ''}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {captures.some((c) => c.id === activeView.id) && (
                     <button
-                      key={v.id}
                       type="button"
-                      onClick={() => setActiveViewIndex(i)}
-                      className={`relative w-20 h-14 rounded-lg overflow-hidden border-2 text-left ${
-                        isActive
-                          ? 'border-[#ffdb00]'
-                          : cap
-                            ? 'border-emerald-500/70'
-                            : 'border-white/20'
-                      }`}
+                      onClick={retakeActiveView}
+                      className="px-2 rounded-lg bg-black/60 border border-white/20 text-[10px] font-bold hover:bg-black/80"
                     >
-                      {cap ? (
-                        <img src={cap.thumbnail} alt={v.label} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full bg-black/50 flex items-center justify-center text-[10px] font-mono text-white/70">
-                          {i + 1}. {v.label}
-                        </div>
-                      )}
-                      <span className="absolute bottom-0 inset-x-0 bg-black/70 text-[9px] text-center py-0.5">
-                        {v.label}
-                        {cap ? ' ✓' : ''}
-                      </span>
+                      Repetir
                     </button>
-                  );
-                })}
-                {captures.some((c) => c.id === activeView.id) && (
-                  <button
-                    type="button"
-                    onClick={retakeActiveView}
-                    className="px-2 rounded-lg bg-black/60 border border-white/20 text-[10px] font-bold hover:bg-black/80"
-                  >
-                    Repetir
-                  </button>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -603,9 +897,7 @@ export const FurnitureScanner: React.FC<FurnitureScannerProps> = ({
                 return (
                   <div
                     key={i}
-                    className={`px-1 rounded ${
-                      hi ? 'bg-[#0058a3]/45 text-white' : 'text-[#cadbd0]'
-                    }`}
+                    className={`px-1 rounded ${hi ? 'bg-[#0058a3]/45 text-white' : 'text-[#cadbd0]'}`}
                   >
                     <span className="inline-block w-7 text-[#4d6556] select-none">{ln}</span>
                     {line || ' '}

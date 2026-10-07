@@ -13,8 +13,10 @@ import {
   deconstructFromMultiView,
   deconstructGenericPlaceholder,
   MultiViewCapture,
+  deconstructSinglePiece,
+  fuseThreeViewsMetrics,
 } from './geometricDeconstruction.ts';
-import { ModoAPipelineResult } from './spatialTypes.ts';
+import { ModoAPipelineResult, DetectedObjectMetrics, CapturedView } from './spatialTypes.ts';
 
 function buildInventory(graph: ReturnType<typeof resolveAssemblyHierarchy>): Record<string, number> {
   const inv: Record<string, number> = {};
@@ -36,10 +38,33 @@ function buildReverseSteps(
     }));
 }
 
-/** Initial / default scan — universal pipeline, not tied to a catalog model. */
 export function runModoAGeneric(): ModoAPipelineResult {
   const { furnitureName, primitives } = deconstructGenericPlaceholder();
   return finalize(furnitureName, primitives, 0);
+}
+
+export function runModoAFromDetection(metrics: DetectedObjectMetrics): ModoAPipelineResult {
+  const isSinglePiece = metrics.classification === 'TABLON' || 
+    metrics.classification === 'LISTON' || 
+    metrics.classification === 'PANEL';
+  
+  if (isSinglePiece) {
+    const { furnitureName, primitives } = deconstructSinglePiece(metrics);
+    return finalize(furnitureName, primitives, 1);
+  }
+  const { furnitureName, primitives } = deconstructGenericPlaceholder();
+  return finalize(furnitureName, primitives, 1);
+}
+
+export function runModoAFromThreeViews(views: CapturedView[]): ModoAPipelineResult {
+  const front = views.find(v => v.id === 'front');
+  const side = views.find(v => v.id === 'side');
+  const top = views.find(v => v.id === 'top');
+  if (front && side && top) {
+    const fused = fuseThreeViewsMetrics(front, side, top);
+    return runModoAFromDetection(fused);
+  }
+  return runModoAGeneric();
 }
 
 export function runModoAFromCanvas(canvas: HTMLCanvasElement): ModoAPipelineResult {
@@ -47,7 +72,6 @@ export function runModoAFromCanvas(canvas: HTMLCanvasElement): ModoAPipelineResu
   return finalize(furnitureName, primitives, 1);
 }
 
-/** Multi-view webcam reconstruction (front + side + top). */
 export function runModoAFromMultiView(views: MultiViewCapture[]): ModoAPipelineResult {
   const { furnitureName, primitives } = deconstructFromMultiView(views);
   return finalize(furnitureName, primitives, views.length);
@@ -75,7 +99,6 @@ function finalize(
   };
 }
 
-/** Decrement inventory as assembly timeline advances (parts consumed). */
 export function inventoryAtStep(
   result: ModoAPipelineResult,
   assembledStep: number

@@ -23,6 +23,40 @@ function uniqueName(base: string, used: Set<string>): string {
 }
 
 export function synthesizeIkeaLangAST(graph: AssemblyGraph): IkeaLangASTNode {
+  if (graph.primitives.length === 1) {
+    const p = graph.primitives[0];
+    if (p.detectedMetrics) {
+      const c = p.detectedMetrics.classification;
+      if (c === 'TABLON' || c === 'LISTON' || c === 'PANEL') {
+        const { widthMm, heightMm, thicknessMm } = p.detectedMetrics.dimensions;
+        const { materialClass, effectiveDensityGcm3, estimatedMassGrams } = p.detectedMetrics.density;
+        const varName = sanitizeIdent(p.name);
+        return {
+          type: 'Program',
+          mueble: sanitizeIdent(graph.furnitureName),
+          herramientas: ['IMPRESORA'],
+          caja: [
+            { kind: 'TABLERO', name: varName, value: `"${Math.round(widthMm)}x${Math.round(heightMm)}x${Math.round(thicknessMm)}"` }
+          ],
+          montaje: [
+            {
+              stepNumber: 1,
+              description: 'Análisis Físico de Pieza',
+              statements: [
+                `IMPRESORA.ESCRIBIR("Material: ${materialClass}")`,
+                `IMPRESORA.ESCRIBIR("Densidad: ${effectiveDensityGcm3.toFixed(2)} g/cm3")`,
+                `IMPRESORA.ESCRIBIR("Masa estimada: ${Math.round(estimatedMassGrams)} g")`,
+                `${varName} = ${varName} UNIR "escaneado"`
+              ],
+              requiresEntreDos: false,
+            }
+          ],
+          terminado: varName,
+        };
+      }
+    }
+  }
+
   const used = new Set<string>();
   const idToVar = new Map<string, string>();
 

@@ -1,4 +1,4 @@
-
+code = """
 import {
   DetectedObjectMetrics,
   DensityProfile,
@@ -234,3 +234,8 @@ export function analyzeFrameMetrics(
     wireframeMesh
   };
 }
+"""
+
+with open('src/scanner/cvDetector.ts', 'w') as f:
+    f.write(code)
+

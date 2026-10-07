@@ -34,6 +34,90 @@ export interface OrientedBoundingBox {
   size: Vec3;
 }
 
+export interface PhysicalDimensions {
+  widthMm: number;        // Largo principal en mm (eje U del PCA)
+  heightMm: number;       // Ancho secundario en mm (eje V del PCA)
+  thicknessMm: number;    // Grosor real de la pieza/perfil en mm
+  volumeCm3: number;      // Volumen real descontando huecos
+  orientationDeg: number; // Ángulo de inclinación detectado por PCA
+}
+
+export interface DensityProfile {
+  structuralRatio: number;      // 0.0 - 1.0 (proporción maciza vs hueca)
+  materialDensityGcm3: number;  // Densidad estimada en g/cm³
+  effectiveDensityGcm3: number; // structuralRatio * materialDensityGcm3
+  estimatedMassGrams: number;   // Masa total estimada
+  materialClass: 'ligero-alveolar' | 'aglomerado-mdf' | 'madera-maciza' | 'polimero-denso' | 'metal';
+  confidence: number;
+}
+
+/** ROI (Region of Interest) rectangle in pixel coordinates */
+export interface RoiRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** ROI scan mode */
+export type RoiMode = 'horizontal' | 'vertical' | 'libre';
+
+/** Classification of detected object */
+export type ObjectClassification =
+  | 'TABLON'    // Rectangular plank/board
+  | 'LISTON'    // Very narrow and long stick/leg (aspect > 6)
+  | 'PANEL'     // Nearly square panel (aspect < 1.8)
+  | 'ESTANTERIA' // Multi-shelf furniture (needs >=2 internal holes, solidity <0.60)
+  | 'MUEBLE';    // Generic assembled furniture
+
+export interface WireframeMesh {
+  ribbons: Array<{
+    top: { x: number; y: number };
+    bottom: { x: number; y: number };
+  }>;
+  spines: Array<Array<{ x: number; y: number }>>;
+}
+
+/** Complete detection output from the CV pipeline */
+export interface DetectedObjectMetrics {
+  bbox: { x: number; y: number; width: number; height: number };
+  obbCorners: Array<{ x: number; y: number }>;
+  dimensions: PhysicalDimensions;
+  density: DensityProfile;
+  contourPoints: Array<{ x: number; y: number }>;
+  /** PCA center in pixel space */
+  centroid: { x: number; y: number };
+  /** PCA orientation angle in radians */
+  theta: number;
+  /** Axis principal endpoints for HUD drawing */
+  principalAxis: { start: { x: number; y: number }; end: { x: number; y: number } };
+  /** Transverse measurement slices for HUD drawing */
+  measurementSlices: Array<{
+    start: { x: number; y: number };
+    end: { x: number; y: number };
+    widthPx: number;
+  }>;
+  /** Number of internal mass→void→mass transitions (holes) */
+  internalHoles: number;
+  /** Structural solidity: foreground pixels / OBB area */
+  structuralSolidity: number;
+  /** Classified object type based on geometry + holes */
+  classification: ObjectClassification;
+  /** 2.5D wireframe mesh wrapped around object */
+  wireframeMesh?: WireframeMesh;
+}
+
+export interface CapturedView {
+  id: ScanViewId;
+  thumbnailDataUrl: string;
+  majorDimMm: number;
+  minorDimMm: number;
+  solidity: number;
+  holeCount: number;
+  textureDensityScore: number;
+  materialDensityGcm3: number;
+}
+
 export interface ScannedPrimitive {
   id: string;
   name: string;
@@ -49,6 +133,8 @@ export interface ScannedPrimitive {
   massKg: number;
   /** Outward explode direction (unit vector from parent) */
   explodeNormal: Vec3;
+  /** Physical metrics detected by computer vision */
+  detectedMetrics?: DetectedObjectMetrics;
 }
 
 export interface ContactJoint {

@@ -4,13 +4,16 @@
 // ============================================================================
 
 import {
+  DetectedObjectMetrics,
   ModoAPresetId,
   OrientedBoundingBox,
   PartRole,
   ScanViewId,
   ScannedPrimitive,
   Vec3,
+  ObjectClassification,
 } from './spatialTypes.ts';
+import { analyzeFrameMetrics } from '../cvDetector.ts';
 
 const AXIS_X: Vec3 = { x: 1, y: 0, z: 0 };
 const AXIS_Y: Vec3 = { x: 0, y: 1, z: 0 };
@@ -270,6 +273,30 @@ export type FurnitureTopology =
   | 'modular'
   | 'unknown';
 
+export function buildDeconstructedPrimitive(metrics: DetectedObjectMetrics) {
+  const { widthMm, heightMm, thicknessMm, volumeCm3 } = metrics.dimensions;
+  const { effectiveDensityGcm3, structuralRatio, materialClass, estimatedMassGrams } = metrics.density;
+
+  return {
+    // Escala en metros o unidades de Three.js (1 unidad = 100 mm)
+    scale3D: [
+      widthMm / 100,
+      thicknessMm / 100, // El eje Y/Z de grosor ahora usa el espesor real medido
+      heightMm / 100,
+    ] as [number, number, number],
+    physicalProperties: {
+      widthMm,
+      heightMm,
+      thicknessMm,
+      volumeCm3,
+      densityGcm3: effectiveDensityGcm3,
+      solidity: structuralRatio,
+      materialClass,
+      massGrams: estimatedMassGrams,
+    },
+  };
+}
+
 type SilhouetteMetrics = {
   aspect: number;
   fill: number;
@@ -284,8 +311,9 @@ type SilhouetteMetrics = {
   woodTone: string;
   openFront: boolean;
   sidePanelStrength: number;
-  /** Fused physical extents in mm (set by multi-view fusion) */
+  /** Fused physical extents in mm (set by multi-view fusion or CV detector) */
   dimsMm?: { width: number; height: number; depth: number };
+  detectedMetrics?: DetectedObjectMetrics;
 };
 
 function rgbToHex(r: number, g: number, b: number): string {
@@ -325,6 +353,14 @@ function analyzeSilhouette(canvas: HTMLCanvasElement): SilhouetteMetrics {
     sidePanelStrength: 0.7,
   };
   if (!ctx) return fallback;
+
+  let cvMetrics: DetectedObjectMetrics | null = null;
+  try {
+    const frameData = ctx.getImageData(0, 0, w, h);
+    cvMetrics = analyzeFrameMetrics(frameData);
+  } catch {
+    /* fallback to color mask */
+  }
 
   const tw = 160;
   const th = Math.max(60, Math.round((h / w) * tw));
@@ -569,6 +605,14 @@ function analyzeSilhouette(canvas: HTMLCanvasElement): SilhouetteMetrics {
     woodTone,
     openFront,
     sidePanelStrength,
+    detectedMetrics: cvMetrics || undefined,
+    dimsMm: cvMetrics
+      ? {
+          width: cvMetrics.dimensions.widthMm,
+          height: cvMetrics.dimensions.heightMm,
+          depth: cvMetrics.dimensions.thicknessMm,
+        }
+      : undefined,
   };
 }
 
@@ -859,10 +903,75 @@ export function deconstructGenericFromMetrics(m: SilhouetteMetrics): {
   };
 }
 
+export function deconstructSinglePiece(metrics: DetectedObjectMetrics): {
+  furnitureName: string;
+  primitives: ScannedPrimitive[];
+} {
+  const c = metrics.classification || 'TABLON';
+  let role: PartRole = 'frame';
+  let kind: ScannedPrimitive['kind'] = 'TABLERO';
+  if (c === 'TABLON' || c === 'LISTON') {
+    role = 'frame';
+    kind = 'TABLERO';
+  } else if (c === 'PANEL') {
+    role = 'top';
+    kind = 'TABLERO';
+  }
+
+  const nameMap: Record<string, string> = {
+    TABLON: 'Tablon_Escaneado',
+    LISTON: 'Liston_Escaneado',
+    PANEL: 'Panel_Escaneado',
+  };
+  const partName = nameMap[c] || 'Pieza_Escaneada';
+  const furName = (nameMap[c] || 'Pieza_Escaneada').replace(/_/, '');
+
+  const { widthMm, heightMm, thicknessMm } = metrics.dimensions;
+
+  const obb = makeObb(
+    v(0, heightMm / 2, 0),
+    v(widthMm, heightMm, thicknessMm)
+  );
+
+  const singlePart: ScannedPrimitive = {
+    id: `single-piece-0`,
+    name: partName,
+    kind,
+    role,
+    obb,
+    materialTone: metrics.density.materialClass === 'madera-maciza' ? '#8b6914' : '#d4a373',
+    confidence: metrics.density.confidence,
+    screenBBox: metrics.bbox,
+    massKg: metrics.density.estimatedMassGrams / 1000,
+    explodeNormal: explodeNormalFor(role, obb.center),
+    detectedMetrics: metrics,
+  };
+
+  return {
+    furnitureName: furName,
+    primitives: normalizeToGroundPlane([singlePart]),
+  };
+}
+
 export function deconstructFromCanvas(canvas: HTMLCanvasElement): {
   furnitureName: string;
   primitives: ScannedPrimitive[];
 } {
+  const w = canvas.width || 1;
+  const h = canvas.height || 1;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    try {
+      const frameData = ctx.getImageData(0, 0, w, h);
+      const metrics = analyzeFrameMetrics(frameData);
+      if (metrics) {
+        const c = metrics.classification;
+        if (c === 'TABLON' || c === 'LISTON' || c === 'PANEL') {
+          return deconstructSinglePiece(metrics);
+        }
+      }
+    } catch {}
+  }
   const metrics = analyzeSilhouette(canvas);
   return deconstructGenericFromMetrics(metrics);
 }
@@ -948,6 +1057,27 @@ export function deconstructFromMultiView(views: MultiViewCapture[]): {
   if (views.length === 0) {
     return deconstructGenericPlaceholder();
   }
+
+  const frontView = views.find(v => v.id === 'front') || views[0];
+  if (frontView) {
+    const canvas = frontView.canvas;
+    const w = canvas.width || 1;
+    const h = canvas.height || 1;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      try {
+        const frameData = ctx.getImageData(0, 0, w, h);
+        const metrics = analyzeFrameMetrics(frameData);
+        if (metrics) {
+          const c = metrics.classification;
+          if (c === 'TABLON' || c === 'LISTON' || c === 'PANEL') {
+            return deconstructSinglePiece(metrics);
+          }
+        }
+      } catch {}
+    }
+  }
+
   if (views.length === 1) {
     return deconstructFromCanvas(views[0].canvas);
   }
@@ -981,4 +1111,43 @@ export function aabbGap(a: OrientedBoundingBox, b: OrientedBoundingBox): number 
   const dy = Math.abs(a.center.y - b.center.y) - (a.halfExtents.y + b.halfExtents.y);
   const dz = Math.abs(a.center.z - b.center.z) - (a.halfExtents.z + b.halfExtents.z);
   return Math.max(dx, dy, dz);
+}
+
+import { CapturedView } from './spatialTypes';
+
+export function fuseThreeViewsMetrics(viewFront: CapturedView, viewSide: CapturedView, viewTop: CapturedView): DetectedObjectMetrics {
+  const widthMm = (viewFront.majorDimMm + viewTop.majorDimMm) / 2;
+  const heightMm = viewFront.minorDimMm;
+  const thicknessMm = viewSide.minorDimMm;
+  
+  const structuralSolidity3D = Math.pow(viewFront.solidity * viewSide.solidity * viewTop.solidity, 1/3);
+  const materialDensityGcm3 = (viewFront.materialDensityGcm3 + viewSide.materialDensityGcm3 + viewTop.materialDensityGcm3) / 3;
+  const effectiveDensityGcm3 = materialDensityGcm3 * structuralSolidity3D;
+  const volumeCm3 = ((widthMm * heightMm * thicknessMm) / 1000) * structuralSolidity3D;
+  const estimatedMassGrams = volumeCm3 * effectiveDensityGcm3;
+  
+  const totalHoles = viewFront.holeCount + viewSide.holeCount + viewTop.holeCount;
+  const classification = (totalHoles === 0 && structuralSolidity3D > 0.65) ? 'TABLON' : 'ESTANTERIA';
+
+  return {
+    bbox: { x: 0, y: 0, width: 0, height: 0 },
+    obbCorners: [],
+    dimensions: { widthMm, heightMm, thicknessMm, volumeCm3, orientationDeg: 0 },
+    density: {
+      structuralRatio: structuralSolidity3D,
+      materialDensityGcm3,
+      effectiveDensityGcm3,
+      estimatedMassGrams,
+      materialClass: 'aglomerado-mdf',
+      confidence: 0.95
+    },
+    contourPoints: [],
+    centroid: { x: 0, y: 0 },
+    theta: 0,
+    principalAxis: { start: { x: 0, y: 0 }, end: { x: 0, y: 0 } },
+    measurementSlices: [],
+    internalHoles: totalHoles,
+    structuralSolidity: structuralSolidity3D,
+    classification
+  };
 }
