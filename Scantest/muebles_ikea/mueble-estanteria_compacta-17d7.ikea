@@ -1,0 +1,87 @@
+MUEBLE ESTANTERIA_COMPACTA
+
+CAJA {
+    TABLERO nombre_mueble = "Estanteria Compacta"
+    TORNILLO tornillos_necesarios = 32.0
+    CAJON piezas_verticales = ["Lateral Izquierdo", "Lateral Derecho", "Divisor Central"]
+    CAJON piezas_horizontales = ["Tablero Superior", "Tablero Inferior", "Estante Superior", "Estante Inferior"]
+    ENCAJE estructura_base_ajustada = SUELTO
+    ENCAJE divisor_colocado = SUELTO
+    ENCAJE estantes_colocados = SUELTO
+    ENCAJE mueble_ensamblado = SUELTO
+    CAJON mueble_final = []
+}
+
+HERRAMIENTAS {
+    TRAER DESTORNILLADOR
+}
+
+MONTAJE {
+    PASO 1: "Ensamblar la estructura principal del mueble" {
+        AVISO("Preparando los laterales y tableros principales.")
+        ENTRE_DOS {
+            // Unir Lateral Izquierdo con Tablero Inferior y Superior
+            mueble_final COLOCAR mueble_final UNIR piezas_verticales[0]
+            mueble_final COLOCAR mueble_final UNIR piezas_horizontales[1] // Tablero Inferior
+            mueble_final COLOCAR mueble_final UNIR piezas_horizontales[0] // Tablero Superior
+            // Unir Lateral Derecho a la estructura parcial
+            mueble_final COLOCAR mueble_final UNIR piezas_verticales[1]
+        }
+        // Usar tornillos para asegurar las 4 esquinas de la estructura base
+        tornillos_necesarios RETIRAR 16.0
+        estructura_base_ajustada COLOCAR AJUSTA
+        SI estructura_base_ajustada ENCAJA SUELTO {
+            VOLCAR("La estructura base no se ajustó correctamente. ¡Revisa las uniones!")
+        }
+        AVISO("Estructura principal ensamblada y ajustada.")
+    }
+
+    PASO 2: "Colocar el divisor central" {
+        SI estructura_base_ajustada ENCAJA AJUSTA {
+            AVISO("Insertando el divisor central.")
+            mueble_final COLOCAR mueble_final UNIR piezas_verticales[2] // Añadir Divisor Central
+            // El divisor se une al tablero superior e inferior
+            tornillos_necesarios RETIRAR 4.0 // 2 conexiones * 2 tornillos/conexión
+            divisor_colocado COLOCAR AJUSTA
+            SI divisor_colocado ENCAJA SUELTO {
+                VOLCAR("El divisor central no se pudo colocar. ¡Verifica las ranuras!")
+            }
+            AVISO("Divisor central colocado y asegurado.")
+        } SINO {
+            VOLCAR("No se puede colocar el divisor sin la estructura base ajustada.")
+        }
+    }
+
+    PASO 3: "Insertar los estantes internos" {
+        SI divisor_colocado ENCAJA AJUSTA {
+            AVISO("Colocando los estantes internos.")
+            mueble_final COLOCAR mueble_final UNIR piezas_horizontales[2] // Estante Superior
+            mueble_final COLOCAR mueble_final UNIR piezas_horizontales[3] // Estante Inferior
+            // Cada estante se une a los dos laterales y al divisor central (3 puntos)
+            tornillos_necesarios RETIRAR 12.0 // 2 estantes * 3 puntos de anclaje * 2 tornillos/punto
+            estantes_colocados COLOCAR AJUSTA
+            SI estantes_colocados ENCAJA SUELTO {
+                VOLCAR("Alguno de los estantes no encajó. ¡Revisa las guías!")
+            }
+            AVISO("Estantes colocados y asegurados.")
+        } SINO {
+            VOLCAR("No se pueden colocar los estantes sin el divisor central.")
+        }
+    }
+
+    PASO 4: "Verificación final y ajuste" {
+        SI estantes_colocados ENCAJA AJUSTA {
+            AVISO("Realizando ajustes finales y verificando la estabilidad de " UNIR nombre_mueble UNIR ".")
+            mueble_ensamblado COLOCAR AJUSTA
+            SI tornillos_necesarios ENCAJA 0.0 {
+                AVISO("Todos los tornillos han sido utilizados. ¡Excelente trabajo!")
+            } SINO {
+                VOLCAR("ERROR 101: PIEZAS_SOBRANTES - Quedan tornillos sin usar. Cantidad: " UNIR tornillos_necesarios)
+            }
+        } SINO {
+            VOLCAR("El mueble no está completo, faltan estantes o el divisor.")
+        }
+    }
+}
+
+TERMINADO mueble_final

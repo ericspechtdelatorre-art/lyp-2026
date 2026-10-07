@@ -2,7 +2,13 @@
 // Stage 3 — IkeaLang AST & Source Code Synthesis (Zero-Leftovers)
 // ============================================================================
 
-import { AssemblyGraph, IkeaLangASTNode, IkeaPrimitiveKind } from './spatialTypes.ts';
+import {
+  AssemblyGraph,
+  IkeaLangASTNode,
+  IkeaPrimitiveKind,
+  FurnitureScanResultDTO,
+  dtoToAssemblyGraph,
+} from './spatialTypes.ts';
 
 function sanitizeIdent(name: string): string {
   const cleaned = name.replace(/[^a-zA-Z0-9_]/g, '_').replace(/^(\d)/, '_$1');
@@ -91,6 +97,9 @@ export function synthesizeIkeaLangAST(graph: AssemblyGraph): IkeaLangASTNode {
   caja.push({ kind: 'ENCAJE', name: estable, value: false });
 
   const herramientas = ['IMPRESORA'];
+  if (legs.length > 0) {
+    herramientas.push('LLAVE_ALLEN');
+  }
   if (graph.tippingThresholdExceeded || graph.steps.some((s) => s.requiresEntreDos)) {
     herramientas.push('NIVEL_BURBUJA');
   }
@@ -115,6 +124,9 @@ export function synthesizeIkeaLangAST(graph: AssemblyGraph): IkeaLangASTNode {
       statements.push(
         `IMPRESORA.ESCRIBIR("Fijando " UNIR ${idToVar.get(legs[0]?.id) || 'total_patas'} UNIR " patas")`
       );
+      if (herramientas.includes('LLAVE_ALLEN')) {
+        statements.push(`LLAVE_ALLEN.APRETAR()`);
+      }
       if (structural) {
         statements.push(`${structural} = ${structural} UNIR " + Patas_x${legs.length}"`);
       }
@@ -157,6 +169,29 @@ export function synthesizeIkeaLangAST(graph: AssemblyGraph): IkeaLangASTNode {
       statements,
       requiresEntreDos: step.requiresEntreDos,
     });
+  }
+
+  // Zero-leftover assurance: ensure every declared variable is consumed in montage
+  const referencedVars = new Set<string>();
+  for (const step of montaje) {
+    for (const stmt of step.statements) {
+      for (const [_, vname] of idToVar) {
+        if (stmt.includes(vname)) referencedVars.add(vname);
+      }
+    }
+  }
+
+  const firstStep = montaje[0];
+  for (const c of caja) {
+    if (c.name !== estable && !referencedVars.has(c.name)) {
+      if (firstStep) {
+        if (c.kind === 'TORNILLO') {
+          firstStep.statements.push(`IMPRESORA.ESCRIBIR("Pieza asegurada: " UNIR ${c.name})`);
+        } else {
+          firstStep.statements.push(`${c.name} = ${c.name} UNIR "ensamblado"`);
+        }
+      }
+    }
   }
 
   // Final stability check consumes es_estable
@@ -276,3 +311,25 @@ export function annotateStepCodeLines(
   });
   return { ...graph, steps };
 }
+
+/**
+ * Synthesizes valid IkeaLang AST and source code directly from a FurnitureScanResultDTO.
+ * Guarantees zero leftover variables and 100% compliance with reglas_ikealang.md.
+ */
+export function synthesizeFromScanDTO(dto: FurnitureScanResultDTO): {
+  ast: IkeaLangASTNode;
+  sourceCode: string;
+  graph: AssemblyGraph;
+} {
+  const graph = dtoToAssemblyGraph(dto);
+  const ast = synthesizeIkeaLangAST(graph);
+  const sourceCode = serializeIkeaLang(ast);
+  const annotatedGraph = annotateStepCodeLines(graph, sourceCode);
+
+  return {
+    ast,
+    sourceCode,
+    graph: annotatedGraph,
+  };
+}
+

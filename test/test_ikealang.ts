@@ -10,7 +10,7 @@ import { Formatter } from '../src/core/formatter.ts';
 import { SAMPLE_PROGRAMS } from '../src/core/samplePrograms.ts';
 import { detectFurnitureModel } from '../src/core/types.ts';
 
-function runTests() {
+async function runTests() {
   console.log('====================================================');
   console.log('   IKEALANG v1.2 UNIVERSAL FURNITURE TEST SUITE     ');
   console.log('====================================================\n');
@@ -149,6 +149,50 @@ TERMINADO usada;`;
   assert(reparsed.ast !== null, 'Formatted code parses cleanly');
   assert(reparsed.ast?.mueble === chairAst.mueble, 'Preserves MUEBLE identifier across round-trip');
   assert(reparsed.ast?.montaje.length === chairAst.montaje.length, 'Preserves exact PASO count');
+
+  // ----------------------------------------------------
+  // TEST 8: Scanner JSON Contract & Code Synthesizer Bridge
+  // ----------------------------------------------------
+  console.log('\n[8] Testing Scanner JSON Contract & Code Synthesizer Bridge...');
+  const { ScannerApiClient } = await import('../src/scanner/scannerApi.ts');
+  const { synthesizeFromScanDTO } = await import('../src/scanner/modoA/codeSynthesizer.ts');
+
+  const testClient = new ScannerApiClient();
+  const testModels = ['Mesa', 'Silla', 'Estanteria', 'Cajonera'];
+
+  for (const model of testModels) {
+    const dto = await testClient.fetchSample(model);
+    assert(dto.primitives.length > 0, `DTO for ${model} contains geometric primitives`);
+    assert(dto.assembly_hierarchy.length > 0, `DTO for ${model} contains assembly steps`);
+
+    const synth = synthesizeFromScanDTO(dto);
+    assert(synth.sourceCode.includes('MUEBLE'), `Synthesized code for ${model} starts with MUEBLE`);
+
+    // Parse synthesized IkeaLang code
+    const synthLexer = new Lexer(synth.sourceCode);
+    const synthTokens = synthLexer.tokenize();
+    const synthParser = new Parser(synthTokens);
+    const parseResult = synthParser.parse();
+    assert(parseResult.ast !== null, `Synthesized code for ${model} parses cleanly`);
+
+    // Lint synthesized code for zero-leftovers and stability
+    if (parseResult.ast) {
+      const linter = new Linter(parseResult.ast);
+      const diagnostics = linter.lint();
+      const errors = diagnostics.filter(d => d.severity === 'error');
+      assert(
+        errors.length === 0,
+        `Synthesized code for ${model} has 0 linter errors`,
+        errors.map(e => `${e.code}: ${e.message}`).join('; ')
+      );
+
+      // Verify execution in interpreter
+      const interp = new Interpreter(parseResult.ast);
+      interp.executeAll();
+      const state = interp.getState();
+      assert(state.status === 'completed', `Synthesized code for ${model} executes completely in interpreter`);
+    }
+  }
 
   // Final Summary
   console.log('\n====================================================');

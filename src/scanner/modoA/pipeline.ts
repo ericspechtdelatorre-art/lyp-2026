@@ -77,6 +77,29 @@ export function runModoAFromMultiView(views: MultiViewCapture[]): ModoAPipelineR
   return finalize(furnitureName, primitives, views.length);
 }
 
+/** Aplica código .ikea de Scantest/Gemini sobre un twin genérico de soporte. */
+export function runModoAFromIkeaSource(
+  sourceCode: string,
+  viewCount = 1
+): ModoAPipelineResult {
+  const base = runModoAGeneric();
+  const nameMatch = sourceCode.match(/^\s*MUEBLE\s+([A-Za-z_][A-Za-z0-9_]*)/m);
+  const furnitureName = nameMatch?.[1] || base.graph.furnitureName;
+  return {
+    ...base,
+    sourceCode: sourceCode.trim(),
+    viewCount: viewCount > 0 ? viewCount : 1,
+    graph: {
+      ...base.graph,
+      furnitureName,
+    },
+    ast: {
+      ...base.ast,
+      mueble: furnitureName,
+    },
+  };
+}
+
 function finalize(
   furnitureName: string,
   primitives: import('./spatialTypes.ts').ScannedPrimitive[],

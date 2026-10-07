@@ -3,3 +3,11 @@ dist/
 release/
 *.log
 .DS_Store
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+Scantest/.env
+Scantest/.venv/
+

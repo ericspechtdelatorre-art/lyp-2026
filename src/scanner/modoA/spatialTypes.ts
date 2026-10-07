@@ -213,3 +213,129 @@ export interface ModoAPipelineResult {
   /** Number of camera/image views used for reconstruction */
   viewCount?: number;
 }
+
+// ============================================================================
+// Typed JSON Contract Specification (Python Microservice <-> TypeScript)
+// ============================================================================
+
+export interface ScannedPrimitiveDTO {
+  id: string;
+  label: string;
+  primitive_type: 'TABLERO' | 'TORNILLO' | 'CAJON';
+  dimensions_mm: [number, number, number]; // [width, height, thickness] in mm
+  center_point: [number, number, number];   // [x, y, z] in mm
+  normal_vector: [number, number, number];  // [nx, ny, nz]
+  material_tone?: string;
+  confidence?: number;
+}
+
+export interface ContactJointDTO {
+  parent_id: string;
+  child_id: string;
+  contact_type: 'APOYO' | 'ENCAJE' | 'ATORNILLADO';
+  normal: [number, number, number];
+}
+
+export interface AssemblyStepDTO {
+  step_index: number;
+  description: string;
+  action: 'COLECCIONAR' | 'UNIR';
+  parent_id?: string | null;
+  children_ids: string[];
+  fasteners_used: number;
+  requires_two_people: boolean;
+}
+
+export interface FurnitureScanResultDTO {
+  scan_id: string;
+  furniture_type: string;
+  suggested_name: string;
+  confidence: number;
+  primitives: ScannedPrimitiveDTO[];
+  joints: ContactJointDTO[];
+  assembly_hierarchy: AssemblyStepDTO[];
+  source_code?: string | null;
+  message?: string | null;
+}
+
+/**
+ * Adapter helper: Converts FurnitureScanResultDTO from the Python microservice
+ * into the internal AssemblyGraph representation consumed by Three.js and the synthesizer.
+ */
+export function dtoToAssemblyGraph(dto: FurnitureScanResultDTO): AssemblyGraph {
+  const primitives: ScannedPrimitive[] = dto.primitives.map((p) => {
+    const [w, h, d] = p.dimensions_mm;
+    const [cx, cy, cz] = p.center_point;
+    const volM3 = (w * h * d) / 1e9;
+    const massKg = Math.max(0.1, Number((volM3 * 650).toFixed(2))); // ~650 kg/m^3 for particle board/wood
+
+    let role: PartRole = 'shelf';
+    const lbl = p.label.toLowerCase();
+    if (lbl.includes('pata') || lbl.includes('leg')) role = 'leg';
+    else if (lbl.includes('suelo') || lbl.includes('inferior') || lbl.includes('base') || lbl.includes('asiento')) role = 'bottom';
+    else if (lbl.includes('techo') || lbl.includes('superior') || lbl.includes('tapa')) role = 'top';
+    else if (lbl.includes('respaldo') || lbl.includes('traser')) role = 'back';
+    else if (lbl.includes('lateral') || lbl.includes('side')) role = 'side';
+    else if (lbl.includes('cajon') || p.primitive_type === 'CAJON') role = 'drawer';
+    else if (p.primitive_type === 'TORNILLO') role = 'fastener';
+
+    const ey = cy > 400 ? 1 : 0;
+    const ex = cx > 0 ? 0.5 : cx < 0 ? -0.5 : 0;
+    const ez = cz > 0 ? 0.5 : cz < 0 ? -0.5 : 0;
+
+    return {
+      id: p.id,
+      name: p.label,
+      kind: p.primitive_type,
+      role,
+      obb: {
+        center: { x: cx, y: cy, z: cz },
+        halfExtents: { x: w / 2, y: h / 2, z: d / 2 },
+        size: { x: w, y: h, z: d },
+        axes: [
+          { x: 1, y: 0, z: 0 },
+          { x: 0, y: 1, z: 0 },
+          { x: 0, y: 0, z: 1 },
+        ],
+      },
+      materialTone: p.material_tone || '#d4a373',
+      confidence: p.confidence ?? 1.0,
+      screenBBox: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 },
+      massKg,
+      explodeNormal: { x: ex, y: ey, z: ez },
+    };
+  });
+
+  const joints: ContactJoint[] = dto.joints.map((j, idx) => ({
+    id: `joint_${idx}_${j.parent_id}_${j.child_id}`,
+    aId: j.parent_id,
+    bId: j.child_id,
+    contactPoint: { x: 0, y: 0, z: 0 },
+    contactNormal: { x: j.normal[0], y: j.normal[1], z: j.normal[2] },
+    strength: 1.0,
+    jointType: j.contact_type === 'ATORNILLADO' ? 'screw' : j.contact_type === 'ENCAJE' ? 'dowel' : 'face',
+  }));
+
+  const steps: AssemblyStepNode[] = dto.assembly_hierarchy.map((s) => ({
+    stepNumber: s.step_index,
+    description: s.description,
+    partIds: s.children_ids.length > 0 ? s.children_ids : (s.parent_id ? [s.parent_id] : []),
+    parentId: s.parent_id || null,
+    requiresEntreDos: s.requires_two_people,
+  }));
+
+  // Identify lowest ground anchors
+  const minY = Math.min(...primitives.map(p => p.obb.center.y - p.obb.halfExtents.y));
+  const groundAnchors = primitives
+    .filter(p => Math.abs((p.obb.center.y - p.obb.halfExtents.y) - minY) < 15)
+    .map(p => p.id);
+
+  return {
+    furnitureName: dto.suggested_name || 'MuebleEscaneado',
+    primitives,
+    joints,
+    steps,
+    groundAnchors: groundAnchors.length > 0 ? groundAnchors : (primitives[0] ? [primitives[0].id] : []),
+    tippingThresholdExceeded: false,
+  };
+}

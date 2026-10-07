@@ -1,0 +1,50 @@
+MUEBLE ESTANTERIA_MINI
+HERRAMIENTAS {
+    HERRAMIENTA Destornillador_PH2;
+}
+CAJA {
+    TABLERO Lateral_Izquierdo = "Panel Lateral Izquierdo";
+    TABLERO Lateral_Derecho = "Panel Lateral Derecho";
+    TABLERO Superior = "Panel Superior";
+    TABLERO Inferior = "Panel Inferior";
+    TABLERO Vertical_Central = "Divisor Central";
+    TABLERO Balda_Superior_Derecha = "Balda Derecha Superior";
+    TABLERO Balda_Inferior_Derecha = "Balda Derecha Inferior";
+    TORNILLO Tornillo_Estandar = 1.0;
+    TORNILLO Cantidad_Tornillos = 20.0;
+    HUECO Estructura_Base;
+    HUECO Estructura_Carcasa;
+    HUECO Estructura_Con_Divisor;
+    HUECO Estanteria_Ensamblada;
+}
+MONTAJE {
+    PASO 1: "Ensamblar la base y los paneles laterales" {
+        UNIR Inferior CON Lateral_Izquierdo;
+        UNIR Inferior CON Lateral_Derecho;
+        ATORNILLAR Destornillador_PH2 CON Tornillo_Estandar DUPLICAR 4.0;
+        RETIRAR Cantidad_Tornillos CON 4.0;
+        ENCAJE Estructura_Base = AJUSTA;
+    }
+    PASO 2: "Fijar el panel superior" {
+        UNIR Estructura_Base CON Superior;
+        ATORNILLAR Destornillador_PH2 CON Tornillo_Estandar DUPLICAR 4.0;
+        RETIRAR Cantidad_Tornillos CON 4.0;
+        ENCAJE Estructura_Carcasa = AJUSTA;
+    }
+    PASO 3: "Insertar el divisor central" {
+        UNIR Estructura_Carcasa CON Vertical_Central;
+        ATORNILLAR Destornillador_PH2 CON Tornillo_Estandar DUPLICAR 4.0;
+        RETIRAR Cantidad_Tornillos CON 4.0;
+        ENCAJE Estructura_Con_Divisor = AJUSTA;
+    }
+    PASO 4: "Colocar las baldas derechas" {
+        UNIR Estructura_Con_Divisor CON Balda_Superior_Derecha;
+        ATORNILLAR Destornillador_PH2 CON Tornillo_Estandar DUPLICAR 4.0;
+        RETIRAR Cantidad_Tornillos CON 4.0;
+        UNIR Estructura_Con_Divisor CON Balda_Inferior_Derecha;
+        ATORNILLAR Destornillador_PH2 CON Tornillo_Estandar DUPLICAR 4.0;
+        RETIRAR Cantidad_Tornillos CON 4.0;
+        ENCAJE Estanteria_Ensamblada = AJUSTA;
+    }
+}
+TERMINADO Estanteria_Ensamblada;

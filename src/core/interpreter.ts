@@ -400,7 +400,16 @@ export class Interpreter {
       if (method === 'ANGULO') return 0.0;
     }
 
-    // 4. Tool CRONOMETRO / Reloj
+    // 4. Tool LLAVE_ALLEN
+    if (object === 'LLAVE_ALLEN') {
+      if (method === 'APRETAR' || method === 'AJUSTAR') {
+        this.addLog('print', `[LLAVE_ALLEN]: Fijación asegurada con par de apriete correcto.`);
+        return true;
+      }
+      return true;
+    }
+
+    // 5. Tool CRONOMETRO / Reloj
     if (object === 'CRONOMETRO' || object === 'Reloj') {
       if (method === 'ESPERAR_MILISEGUNDOS') {
         this.addLog('print', `[CRONOMETRO]: Esperando ${args[0]}ms...`);
